@@ -6,6 +6,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -30,7 +33,7 @@ jobs:
       - name: Run tests
         run: npm test
       - name: Build installer and portable exe
-        run: npm run dist
+        run: npm run dist -- --publish never
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -38,3 +41,16 @@ jobs:
           path: |
             dist/*.exe
           if-no-files-found: error
+      - name: Publish release (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: DinoNest ${{ github.ref_name }}
+          files: dist/*.exe
+          body: |
+            DinoNest za Windows — offline nesting program za laserski rez.
+
+            - **DinoNest-Setup-*.exe** — installer (preporučeno): pokrenite i slijedite korake.
+            - **DinoNest-Portable-*.exe** — radi bez instalacije, samo pokrenite.
+
+            Prebacite datoteku na USB i pokrenite na računalu lasera. Internet nije potreban.

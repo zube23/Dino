@@ -1,0 +1,64 @@
+{
+  "name": "dinonest",
+  "productName": "DinoNest",
+  "version": "1.0.0",
+  "description": "Brzi offline nesting program za laserski rez - DXF partovi po prioritetima na ploču",
+  "main": "electron/main.js",
+  "author": "Ivan Zubcic",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node test/run-tests.js",
+    "samples": "node scripts/gen-samples.js",
+    "icon": "node scripts/gen-icon.js",
+    "dist": "electron-builder --win",
+    "dist:dir": "electron-builder --win --dir"
+  },
+  "devDependencies": {
+    "electron": "^38.8.6",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "hr.dino.dinonest",
+    "productName": "DinoNest",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "src/**/*",
+      "build/icon.png",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "DinoNest",
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-Portable-${version}.${ext}"
+    }
+  }
+}

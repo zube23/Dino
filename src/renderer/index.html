@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="hr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DinoNest</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🦖 DinoNest</div>
+    <nav class="tabs">
+      <button id="tabStroj" class="tab active">STROJ</button>
+      <button id="tabPriprema" class="tab">PRIPREMA</button>
+    </nav>
+    <div class="spacer"></div>
+    <div id="appVersion" class="version"></div>
+  </header>
+
+  <!-- ======================= STROJ ======================= -->
+  <main id="viewStroj" class="view">
+    <div class="machine">
+      <div class="dims">
+        <label class="dim">
+          <span>DULJINA ploče (mm)</span>
+          <input id="inWidth" type="text" inputmode="decimal" placeholder="npr. 2000" autocomplete="off">
+        </label>
+        <label class="dim">
+          <span>ŠIRINA ploče (mm)</span>
+          <input id="inHeight" type="text" inputmode="decimal" placeholder="npr. 1000" autocomplete="off">
+        </label>
+      </div>
+
+      <button id="btnGenerate" class="generate">GENERIRAJ</button>
+
+      <div id="prevSheets" class="prev-sheets" hidden></div>
+      <div id="genStatus" class="status" hidden></div>
+
+      <div id="result" class="result" hidden>
+        <canvas id="preview" width="1100" height="560"></canvas>
+        <div id="stats" class="stats"></div>
+        <div id="unplacedWarn" class="warn" hidden></div>
+        <div class="row">
+          <button id="btnOpen" class="btn">OTVORI DXF</button>
+          <button id="btnFolder" class="btn ghost">PRIKAŽI U MAPI</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ===================== PRIPREMA ====================== -->
+  <main id="viewPriprema" class="view" hidden>
+    <div class="prep">
+      <section class="card">
+        <h2>Partovi</h2>
+        <div id="dropZone" class="drop">
+          <div>Povucite DXF datoteke ovdje</div>
+          <button id="btnPickFiles" class="btn">ODABERI DATOTEKE…</button>
+          <input id="fileInput" type="file" accept=".dxf,.DXF" multiple hidden>
+        </div>
+        <div id="importErrors" class="warn" hidden></div>
+        <div id="partsList" class="parts"></div>
+      </section>
+
+      <section class="card">
+        <h2>Postavke</h2>
+        <div class="settings-grid">
+          <label>Razmak između partova (mm)
+            <input id="setGap" type="text" inputmode="decimal">
+          </label>
+          <label>Rub ploče (mm)
+            <input id="setMargin" type="text" inputmode="decimal">
+          </label>
+          <label class="check"><input id="setRotate" type="checkbox"> Dozvoli rotaciju 90° <em>(zrcaljenje je uvijek zabranjeno)</em></label>
+          <label class="check"><input id="setAutoOpen" type="checkbox"> Nakon generiranja odmah otvori DXF (SciCut)</label>
+          <label class="check"><input id="setFrame" type="checkbox"> Dodaj okvir ploče u DXF (layer PLOCA)</label>
+          <label>SciCut program (.exe)
+            <span class="pathrow">
+              <input id="setScicut" type="text" placeholder="prazno = zadana aplikacija za .dxf">
+              <button id="btnPickExe" class="btn small">…</button>
+            </span>
+          </label>
+          <label>Mapa za spremanje DXF ploča
+            <span class="pathrow">
+              <input id="setOutput" type="text" placeholder="prazno = zadana mapa programa">
+              <button id="btnPickDir" class="btn small">…</button>
+            </span>
+          </label>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Povijest ploča</h2>
+        <div id="historyList" class="history"></div>
+      </section>
+    </div>
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <div id="noBridge" class="nobridge" hidden>
+    Sučelje prema sustavu nije dostupno. Pokrenite DinoNest kao instaliranu aplikaciju
+    (ovo se sučelje ne može koristiti izravno u web pregledniku).
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

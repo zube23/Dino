@@ -136,7 +136,7 @@ class MaxRectsBin {
 function nestParts(opts) {
   const {
     sheetW, sheetH, margin = 0, gap = 0,
-    allowRotate = true, maxTotal = 5000, parts = [],
+    allowRotate = true, maxTotal = 20000, parts = [],
   } = opts;
 
   if (!(sheetW > 0) || !(sheetH > 0)) {
@@ -154,6 +154,7 @@ function nestParts(opts) {
   const placedCounts = {};
   let placedArea = 0;
   let total = 0;
+  let capped = false; // true when the safety cap cut placement short
 
   const byPriorityThenArea = (a, b) => {
     const pa = Number.isFinite(a.priority) ? a.priority : 999;
@@ -185,8 +186,15 @@ function nestParts(opts) {
     const want = Math.max(0, Math.floor(part.count || 0));
     let missed = 0;
     for (let k = 0; k < want; k++) {
-      if (total >= maxTotal || !tryPlace(part)) missed = want - k;
-      if (missed) break;
+      if (total >= maxTotal) {
+        capped = true;
+        missed = want - k;
+        break;
+      }
+      if (!tryPlace(part)) {
+        missed = want - k;
+        break;
+      }
     }
     if (missed > 0) unplaced.push({ id: part.id, count: missed });
   }
@@ -196,7 +204,11 @@ function nestParts(opts) {
   for (const part of fillers) {
     const cap = part.maxCount && part.maxCount > 0 ? Math.floor(part.maxCount) : Infinity;
     let placed = placedCounts[part.id] || 0;
-    while (placed < cap && total < maxTotal) {
+    while (placed < cap) {
+      if (total >= maxTotal) {
+        capped = true;
+        break;
+      }
       if (!tryPlace(part)) break;
       placed += 1;
     }
@@ -207,6 +219,8 @@ function nestParts(opts) {
     unplaced,
     utilization: placedArea / (sheetW * sheetH),
     placedCounts,
+    capped,
+    maxTotal,
   };
 }
 

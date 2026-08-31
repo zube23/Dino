@@ -3,7 +3,7 @@
 /* Plain-Node test suite for the DinoNest core. Run: npm test */
 
 const {
-  parseDxf, writeDxf, transformEntity, sampleEntity, sampleEntities, bulgeArcPoints,
+  parseDxf, writeDxf, transformEntity, sampleEntity, sampleEntities, bulgeArcPoints, arcSweep,
 } = require('../src/core/dxf');
 const {
   bboxOfPoints, convexHull, polygonArea, minAreaRect, rotatePoints,
@@ -222,6 +222,128 @@ function dxfDoc(entityLines) {
 }
 
 // ---------------------------------------------------------------------------
+// Full-circle arcs and sweep preservation
+// ---------------------------------------------------------------------------
+
+{
+  check('arcSweep basics', arcSweep(0, 90) === 90 && arcSweep(350, 20) === 30
+    && arcSweep(0, 360) === 360 && arcSweep(30, 30) === 360 && arcSweep(90, 0) === 270);
+
+  // Full-circle arc must survive placement transform + write as a CIRCLE.
+  const full = { type: 'ARC', layer: '0', cx: 10, cy: 0, r: 5, a1: 0, a2: 360 };
+  const moved = transformEntity(full, { rotDeg: 30, dx: 100, dy: 50 });
+  check('full arc sweep preserved', approx(arcSweep(moved.a1, moved.a2), 360), JSON.stringify(moved));
+  const { entities: back } = parseDxf(writeDxf([moved]));
+  check('full arc written as circle', back.length === 1 && back[0].type === 'CIRCLE'
+    && approx(back[0].r, 5, 1e-6), JSON.stringify(back));
+
+  // Partial arc crossing zero keeps its sweep through transforms.
+  const cross = { type: 'ARC', layer: '0', cx: 0, cy: 0, r: 10, a1: 350, a2: 20 };
+  const c2 = transformEntity(transformEntity(cross, { rotDeg: 90 }), { rotDeg: 45 });
+  check('crossing arc sweep preserved', approx(arcSweep(c2.a1, c2.a2), 30, 1e-9),
+    JSON.stringify(c2));
+  const { entities: backC } = parseDxf(writeDxf([c2]));
+  check('crossing arc stays arc', backC.length === 1 && backC[0].type === 'ARC');
+  const bbOrig = bboxOfPoints(rotatePoints(sampleEntity(cross, 4)[0], 135));
+  const bbBack = bboxOfPoints(sampleEntity(backC[0], 4)[0]);
+  check('crossing arc geometry preserved',
+    approx(bbOrig.w, bbBack.w, 0.01) && approx(bbOrig.h, bbBack.h, 0.01),
+    JSON.stringify([bbOrig, bbBack]));
+}
+
+// ---------------------------------------------------------------------------
+// OCS / extrusion (mirror via 230 = -1)
+// ---------------------------------------------------------------------------
+
+{
+  // Asymmetric LWPOLYLINE with extrusion -Z: WCS geometry is the X-mirror.
+  const doc = dxfDoc([
+    '0', 'LWPOLYLINE', '8', '0', '90', '3', '70', '1',
+    '10', '0', '20', '0', '42', '0.5',
+    '10', '40', '20', '0',
+    '10', '40', '20', '10',
+    '210', '0', '220', '0', '230', '-1',
+  ]);
+  const { entities, warnings } = parseDxf(doc);
+  check('ocs polyline parsed', entities.length === 1, JSON.stringify(warnings));
+  const v = entities[0].verts;
+  check('ocs polyline x negated', approx(v[0].x, 0) && approx(v[1].x, -40) && approx(v[2].x, -40),
+    JSON.stringify(v));
+  check('ocs polyline bulge negated', approx(v[0].bulge, -0.5), JSON.stringify(v[0]));
+}
+
+{
+  // ARC with extrusion -Z: sampled WCS points must equal the X-mirrored
+  // samples of the same arc without extrusion.
+  const plain = dxfDoc(['0', 'ARC', '8', '0', '10', '50', '20', '0', '40', '10', '50', '0', '51', '90']);
+  const flipped = dxfDoc(['0', 'ARC', '8', '0', '10', '50', '20', '0', '40', '10', '50', '0', '51', '90', '230', '-1']);
+  const a = parseDxf(plain).entities[0];
+  const b = parseDxf(flipped).entities[0];
+  check('ocs arc center', approx(b.cx, -50) && approx(b.cy, 0), JSON.stringify(b));
+  check('ocs arc angles', approx(b.a1, 90) && approx(b.a2, 180), JSON.stringify(b));
+  const mirrored = sampleEntity(a, 2)[0].map(([x, y]) => [-x, y]);
+  const sampled = sampleEntity(b, 2)[0];
+  const setHas = (pt) => sampled.some(([x, y]) => Math.hypot(x - pt[0], y - pt[1]) < 1e-6);
+  check('ocs arc points match mirror', setHas(mirrored[0]) && setHas(mirrored[mirrored.length - 1]),
+    JSON.stringify([mirrored[0], mirrored[mirrored.length - 1], sampled[0], sampled[sampled.length - 1]]));
+}
+
+{
+  // Circle with extrusion -Z, tilted extrusion rejected, INSERT -Z rejected
+  const doc = dxfDoc(['0', 'CIRCLE', '8', '0', '10', '30', '20', '5', '40', '2', '230', '-1']);
+  const c = parseDxf(doc).entities[0];
+  check('ocs circle x negated', approx(c.cx, -30) && approx(c.cy, 5));
+
+  const tilted = dxfDoc(['0', 'CIRCLE', '8', '0', '10', '0', '20', '0', '40', '2',
+    '210', '0.5', '220', '0', '230', '0.866']);
+  const rt = parseDxf(tilted);
+  check('tilted extrusion skipped', rt.entities.length === 0 && rt.warnings.length === 1,
+    JSON.stringify(rt.warnings));
+
+  const insDoc = [
+    '0', 'SECTION', '2', 'BLOCKS',
+    '0', 'BLOCK', '2', 'B1', '10', '0', '20', '0',
+    '0', 'LINE', '8', '0', '10', '0', '20', '0', '11', '10', '21', '0',
+    '0', 'ENDBLK', '0', 'ENDSEC',
+    '0', 'SECTION', '2', 'ENTITIES',
+    '0', 'INSERT', '8', '0', '2', 'B1', '10', '0', '20', '0', '230', '-1',
+    '0', 'ENDSEC', '0', 'EOF',
+  ].join('\n');
+  const ri = parseDxf(insDoc);
+  check('mirrored-extrusion insert skipped', ri.entities.length === 0 && ri.warnings.length === 1,
+    JSON.stringify(ri.warnings));
+}
+
+{
+  // INSERT with sx=sy=-1 is a pure 180-degree rotation - must expand and
+  // match the same block inserted with rot+180.
+  const mk = (insertLines) => [
+    '0', 'SECTION', '2', 'BLOCKS',
+    '0', 'BLOCK', '2', 'B1', '10', '0', '20', '0',
+    '0', 'LINE', '8', '0', '10', '1', '20', '2', '11', '10', '21', '3',
+    '0', 'ARC', '8', '0', '10', '5', '20', '0', '40', '2', '50', '10', '51', '80',
+    '0', 'ENDBLK', '0', 'ENDSEC',
+    '0', 'SECTION', '2', 'ENTITIES',
+    ...insertLines,
+    '0', 'ENDSEC', '0', 'EOF',
+  ].join('\n');
+  const neg = parseDxf(mk(['0', 'INSERT', '8', '0', '2', 'B1', '10', '100', '20', '50',
+    '41', '-1', '42', '-1', '50', '30']));
+  const rot = parseDxf(mk(['0', 'INSERT', '8', '0', '2', 'B1', '10', '100', '20', '50',
+    '50', '210']));
+  check('neg-uniform insert expands', neg.entities.length === 2 && neg.warnings.length === 0,
+    JSON.stringify(neg.warnings));
+  const pn = sampleEntities(neg.entities, 2).flat();
+  const pr = sampleEntities(rot.entities, 2).flat();
+  let maxErr = 0;
+  for (let i = 0; i < Math.min(pn.length, pr.length); i++) {
+    maxErr = Math.max(maxErr, Math.hypot(pn[i][0] - pr[i][0], pn[i][1] - pr[i][1]));
+  }
+  check('neg-uniform insert equals rot+180', pn.length === pr.length && maxErr < 1e-6,
+    'err=' + maxErr + ' n=' + pn.length + '/' + pr.length);
+}
+
+// ---------------------------------------------------------------------------
 // Splines and ellipses
 // ---------------------------------------------------------------------------
 
@@ -385,6 +507,24 @@ function rectsOverlap(a, b) {
     parts: [{ id: 'F', w: 50, h: 50, priority: 1, mode: 'filler', maxCount: 3 }],
   });
   check('filler cap', res.placedCounts.F === 3, 'F=' + res.placedCounts.F);
+  check('filler cap not flagged as capped', res.capped === false);
+}
+
+{
+  // Safety cap is reported via the capped flag
+  const res = nestParts({
+    sheetW: 1000, sheetH: 1000, margin: 0, gap: 0, maxTotal: 50,
+    parts: [{ id: 'F', w: 50, h: 50, priority: 1, mode: 'filler', maxCount: 0 }],
+  });
+  check('maxTotal capped count', res.placedCounts.F === 50, 'F=' + res.placedCounts.F);
+  check('maxTotal capped flag', res.capped === true && res.maxTotal === 50);
+
+  const free = nestParts({
+    sheetW: 1000, sheetH: 1000, margin: 0, gap: 0,
+    parts: [{ id: 'F', w: 50, h: 50, priority: 1, mode: 'filler', maxCount: 0 }],
+  });
+  check('bin-full not capped', free.capped === false && free.placedCounts.F === 400,
+    JSON.stringify({ capped: free.capped, F: free.placedCounts.F }));
 }
 
 {

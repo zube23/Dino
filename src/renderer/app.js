@@ -19,13 +19,35 @@ const bridge = window.dino;
 
 function parseNum(text) {
   if (typeof text !== 'string') return NaN;
-  const t = text.trim().replace(',', '.');
+  let t = text.trim();
   if (t === '') return NaN;
+  // "2.000" is a Croatian thousands notation, not 2 millimeters.
+  if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
+  t = t.replace(',', '.');
   return Number(t);
 }
 
 function fmtMm(n) {
-  return (Math.round(n * 10) / 10).toLocaleString('hr-HR');
+  // No thousands grouping - the shown value must round-trip through parseNum.
+  return String(Math.round(n * 10) / 10).replace('.', ',');
+}
+
+let toastTimer = null;
+function showToast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.hidden = true; }, 6000);
+}
+
+async function openDxfPath(p) {
+  try {
+    const r = await bridge.openFile(p);
+    if (r && !r.ok) showToast(r.message || 'Otvaranje DXF-a nije uspjelo.');
+  } catch (e) {
+    showToast('Otvaranje DXF-a nije uspjelo: ' + (e && e.message ? e.message : e));
+  }
 }
 
 function fmtDate(iso) {
@@ -69,6 +91,7 @@ $('tabPriprema').addEventListener('click', () => showView('priprema'));
 // ---------------------------------------------------------------------------
 
 async function generate() {
+  if ($('btnGenerate').disabled) return; // already running (Enter bypasses the button)
   const width = parseNum($('inWidth').value);
   const height = parseNum($('inHeight').value);
   const status = $('genStatus');
@@ -121,16 +144,18 @@ function renderResult(res) {
   stats.appendChild(fileLine);
 
   const warn = $('unplacedWarn');
+  const msgs = [];
   if (res.unplaced && res.unplaced.length > 0) {
-    warn.hidden = false;
-    warn.textContent = 'NIJE STALO: ' + res.unplaced.map((u) => u.name + ' ×' + u.count).join(', ');
-  } else {
-    warn.hidden = true;
+    msgs.push('NIJE STALO: ' + res.unplaced.map((u) => u.name + ' ×' + u.count).join(', '));
+  }
+  if (res.capped) {
+    msgs.push('Dosegnut je sigurnosni limit od ' + (res.maxTotal || '') + ' komada — ploča možda nije potpuno popunjena.');
   }
   if (res.openMessage) {
-    warn.hidden = false;
-    warn.textContent = ((warn.textContent || '') + '  ' + res.openMessage).trim();
+    msgs.push(res.openMessage);
   }
+  warn.textContent = msgs.join('  ·  ');
+  warn.hidden = msgs.length === 0;
 }
 
 function drawSheet(canvas, res) {
@@ -201,7 +226,7 @@ function renderPrevSheets() {
   for (const m of matches.slice(0, 4)) {
     const b = el('button', 'btn small ghost',
       fmtDate(m.date) + ' · ' + m.totalPlaced + ' kom · OTVORI');
-    b.addEventListener('click', () => bridge.openFile(m.dxfPath));
+    b.addEventListener('click', () => openDxfPath(m.dxfPath));
     row.appendChild(b);
   }
   box.appendChild(row);
@@ -210,12 +235,12 @@ function renderPrevSheets() {
 $('btnGenerate').addEventListener('click', generate);
 for (const id of ['inWidth', 'inHeight']) {
   $(id).addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') generate();
+    if (e.key === 'Enter' && !e.repeat) generate();
   });
   $(id).addEventListener('input', renderPrevSheets);
 }
 $('btnOpen').addEventListener('click', () => {
-  if (state.lastResult) bridge.openFile(state.lastResult.dxfPath);
+  if (state.lastResult) openDxfPath(state.lastResult.dxfPath);
 });
 $('btnFolder').addEventListener('click', () => {
   if (state.lastResult) bridge.showInFolder(state.lastResult.dxfPath);
@@ -255,8 +280,9 @@ function renderParts() {
     list.appendChild(el('div', 'empty', 'Još nema partova. Dodajte DXF datoteke iznad.'));
     return;
   }
-  const sorted = state.parts.slice().sort((a, b) => (a.priority - b.priority) || (b.area - a.area));
-  for (const part of sorted) {
+  // Keep insertion order - re-sorting on every priority change would make
+  // rows jump under the cursor while editing.
+  for (const part of state.parts) {
     list.appendChild(partRow(part));
   }
 }
@@ -381,6 +407,10 @@ $('fileInput').addEventListener('change', async (e) => {
   e.target.value = '';
 });
 
+// A drop that misses the drop zone must never navigate the window away.
+window.addEventListener('dragover', (e) => e.preventDefault());
+window.addEventListener('drop', (e) => e.preventDefault());
+
 const drop = $('dropZone');
 drop.addEventListener('dragover', (e) => {
   e.preventDefault();
@@ -457,7 +487,7 @@ function renderHistory() {
     row.appendChild(el('div', '', Math.round((s.utilization || 0) * 100) + '%'));
     const btns = el('div', 'hbtns');
     const open = el('button', 'btn small', 'OTVORI');
-    open.addEventListener('click', () => bridge.openFile(s.dxfPath));
+    open.addEventListener('click', () => openDxfPath(s.dxfPath));
     const folder = el('button', 'btn small ghost', 'MAPA');
     folder.addEventListener('click', () => bridge.showInFolder(s.dxfPath));
     const del = el('button', 'btn small danger', '✕');

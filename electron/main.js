@@ -73,7 +73,12 @@ function newId() {
 }
 
 function sanitizeName(name) {
-  return String(name || 'part').replace(/[^\w.\- ]+/g, '_').slice(0, 80);
+  // Keep Unicode letters/digits so Croatian names (č, ć, š, đ, ž) survive.
+  return String(name || 'part').replace(/[^\p{L}\p{N}.\-_ ]+/gu, '_').slice(0, 80);
+}
+
+function validId(id) {
+  return typeof id === 'string' && /^[a-z0-9]+$/i.test(id);
 }
 
 function pad2(n) {
@@ -139,6 +144,7 @@ ipcMain.handle('parts:add', (ev, files) => {
 const EDITABLE_FIELDS = new Set(['name', 'priority', 'mode', 'count', 'maxCount', 'enabled']);
 
 ipcMain.handle('parts:update', (ev, id, patch) => {
+  if (!validId(id)) throw new Error('Neispravan ID parta.');
   const lib = loadLibrary();
   const entry = lib.parts.find((p) => p.id === id);
   if (!entry) throw new Error('Part ne postoji.');
@@ -159,6 +165,7 @@ ipcMain.handle('parts:update', (ev, id, patch) => {
 });
 
 ipcMain.handle('parts:remove', (ev, id) => {
+  if (!validId(id)) throw new Error('Neispravan ID parta.');
   const lib = loadLibrary();
   lib.parts = lib.parts.filter((p) => p.id !== id);
   writeJson(libraryFile(), lib);
@@ -188,7 +195,7 @@ ipcMain.handle('settings:set', (ev, patch) => {
   return s;
 });
 
-ipcMain.handle('nest:generate', (ev, req) => {
+ipcMain.handle('nest:generate', async (ev, req) => {
   ensureDirs();
   const width = Number(req && req.width);
   const height = Number(req && req.height);
@@ -276,7 +283,7 @@ ipcMain.handle('nest:generate', (ev, req) => {
   let opened = false;
   let openMessage = '';
   if (settings.autoOpen) {
-    const r = openDxf(dxfPath, settings);
+    const r = await openDxf(dxfPath, settings);
     opened = r.ok;
     openMessage = r.message || '';
   }
@@ -292,27 +299,49 @@ ipcMain.handle('nest:generate', (ev, req) => {
     summary: result.summary,
     utilization: result.utilization,
     totalPlaced: result.totalPlaced,
+    capped: result.capped,
+    maxTotal: result.maxTotal,
     elapsedMs,
     opened,
     openMessage,
   };
 });
 
-function openDxf(dxfPath, settings) {
+async function openDxf(dxfPath, settings) {
   const exe = settings.scicutPath && settings.scicutPath.trim();
   if (exe) {
     if (!fs.existsSync(exe)) {
       return { ok: false, message: 'SciCut nije pronađen na: ' + exe };
     }
-    try {
-      const child = spawn(exe, [dxfPath], { detached: true, stdio: 'ignore' });
-      child.unref();
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, message: 'Ne mogu pokrenuti SciCut: ' + e.message };
-    }
+    // spawn reports launch failures (EACCES, corrupt exe...) asynchronously
+    // via the 'error' event - without a listener that would crash the app.
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (r) => {
+        if (!done) {
+          done = true;
+          resolve(r);
+        }
+      };
+      try {
+        const child = spawn(exe, [dxfPath], { detached: true, stdio: 'ignore' });
+        child.once('error', (e) => finish({ ok: false, message: 'Ne mogu pokrenuti SciCut: ' + e.message }));
+        child.once('spawn', () => {
+          child.unref();
+          finish({ ok: true });
+        });
+      } catch (e) {
+        finish({ ok: false, message: 'Ne mogu pokrenuti SciCut: ' + e.message });
+      }
+    });
   }
-  shell.openPath(dxfPath);
+  const err = await shell.openPath(dxfPath);
+  if (err) {
+    return {
+      ok: false,
+      message: 'Ne mogu otvoriti DXF (' + err + '). Postavite putanju do SciCut programa u Postavkama.',
+    };
+  }
   return { ok: true };
 }
 

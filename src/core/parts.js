@@ -110,7 +110,7 @@ function decimate(pts, maxPts) {
 function generateSheet(opts) {
   const {
     sheetW, sheetH, margin = 10, gap = 8,
-    allowRotate = true, addFrame = false, parts = [],
+    allowRotate = true, addFrame = false, parts = [], maxTotal,
   } = opts;
 
   const nest = nestParts({
@@ -119,6 +119,7 @@ function generateSheet(opts) {
     margin,
     gap,
     allowRotate,
+    maxTotal,
     parts: parts.map((p) => ({
       id: p.id,
       w: p.w,
@@ -220,6 +221,8 @@ function generateSheet(opts) {
     utilization: nest.utilization,
     totalPlaced: nest.placements.length,
     summary,
+    capped: nest.capped,
+    maxTotal: nest.maxTotal,
   };
 }
 

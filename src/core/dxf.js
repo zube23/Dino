@@ -188,6 +188,13 @@ function parseEntity(pairs, i, warnings) {
     return dflt;
   };
   const layer = String(get(8, '0'));
+  // Extrusion direction (OCS normal). Entities whose coordinates live in the
+  // Object Coordinate System must be converted to WCS: a (0,0,-1) extrusion
+  // means the drawn geometry is mirrored about the Y axis.
+  const ocsX = num(get(210, 0));
+  const ocsY = num(get(220, 0));
+  const ocsZ = num(get(230, 1));
+  const ocs = (entity) => applyOcs(entity, ocsX, ocsY, ocsZ, warnings);
 
   switch (type) {
     case 'LINE':
@@ -201,19 +208,19 @@ function parseEntity(pairs, i, warnings) {
       };
     case 'CIRCLE':
       return {
-        entity: {
+        entity: ocs({
           type: 'CIRCLE', layer,
           cx: num(get(10, 0)), cy: num(get(20, 0)), r: num(get(40, 0)),
-        },
+        }),
         next: i,
       };
     case 'ARC':
       return {
-        entity: {
+        entity: ocs({
           type: 'ARC', layer,
           cx: num(get(10, 0)), cy: num(get(20, 0)), r: num(get(40, 0)),
           a1: num(get(50, 0)), a2: num(get(51, 0)),
-        },
+        }),
         next: i,
       };
     case 'LWPOLYLINE': {
@@ -230,7 +237,7 @@ function parseEntity(pairs, i, warnings) {
           cur.bulge = num(c.value);
         }
       }
-      return { entity: { type: 'POLYLINE', layer, closed, verts }, next: i };
+      return { entity: ocs({ type: 'POLYLINE', layer, closed, verts }), next: i };
     }
     case 'POLYLINE': {
       const flags = parseInt(get(70, '0'), 10);
@@ -267,7 +274,7 @@ function parseEntity(pairs, i, warnings) {
       if (is3dOrMesh) {
         warnings.push('3D polilinija/mreža pretvorena u 2D konturu.');
       }
-      return { entity: { type: 'POLYLINE', layer, closed, verts }, next: i };
+      return { entity: ocs({ type: 'POLYLINE', layer, closed, verts }), next: i };
     }
     case 'SPLINE': {
       const flags = parseInt(get(70, '0'), 10);
@@ -313,13 +320,13 @@ function parseEntity(pairs, i, warnings) {
       };
     case 'INSERT':
       return {
-        entity: {
+        entity: ocs({
           type: 'INSERT', layer,
           name: String(get(2, '')),
           x: num(get(10, 0)), y: num(get(20, 0)),
           sx: num(get(41, 1)), sy: num(get(42, 1)),
           rot: num(get(50, 0)),
-        },
+        }),
         next: i,
       };
     default:
@@ -329,6 +336,48 @@ function parseEntity(pairs, i, warnings) {
         warnings.push('Entitet preskočen (nije geometrija reza): ' + type);
       }
       return { entity: null, next: i };
+  }
+}
+
+/**
+ * Convert an entity from its Object Coordinate System to WCS based on the
+ * extrusion direction (group codes 210/220/230). Returns the entity, a
+ * converted copy, or null (skipped, with a warning).
+ */
+function applyOcs(e, ex, ey, ez, warnings) {
+  const EPS = 1e-6;
+  if (Math.abs(ex) < EPS && Math.abs(ey) < EPS && Math.abs(ez - 1) < EPS) return e;
+  if (Math.abs(ex) < EPS && Math.abs(ey) < EPS && Math.abs(ez + 1) < EPS) {
+    // Extrusion (0,0,-1): OCS -> WCS negates X (arbitrary axis algorithm).
+    // The geometry as drawn is the mirror image of the parsed coordinates.
+    if (e.type === 'INSERT') {
+      // A mirrored block placement cannot be represented with rigid
+      // rotation+translation - refuse it rather than cut a mirrored part.
+      warnings.push('INSERT "' + e.name + '" preskočen: zrcaljeni umetak (ekstruzija -Z) nije podržan.');
+      return null;
+    }
+    return mirrorXOcs(e);
+  }
+  warnings.push('Entitet preskočen: nagnuta 3D ravnina (ekstruzija) nije podržana (' + e.type + ').');
+  return null;
+}
+
+/** Mirror an OCS entity about the Y axis (x -> -x) into WCS coordinates. */
+function mirrorXOcs(e) {
+  switch (e.type) {
+    case 'CIRCLE':
+      return { ...e, cx: -e.cx };
+    case 'ARC':
+      // Point at OCS angle t maps to WCS angle 180-t; orientation flips,
+      // so the CCW WCS arc runs from 180-a2 to 180-a1.
+      return { ...e, cx: -e.cx, a1: norm360(180 - e.a2), a2: norm360(180 - e.a1) };
+    case 'POLYLINE':
+      return {
+        ...e,
+        verts: e.verts.map((v) => ({ x: -v.x, y: v.y, bulge: -v.bulge })),
+      };
+    default:
+      return e;
   }
 }
 
@@ -342,8 +391,16 @@ function expandInsert(ins, blocks, out, warnings, depth) {
     warnings.push('INSERT preskočen: blok "' + ins.name + '" nije pronađen.');
     return;
   }
-  const sx = ins.sx === 0 ? 1 : ins.sx;
-  const sy = ins.sy === 0 ? 1 : ins.sy;
+  let sx = ins.sx === 0 ? 1 : ins.sx;
+  let sy = ins.sy === 0 ? 1 : ins.sy;
+  let rot = ins.rot;
+  // Uniform negative scale is not a mirror: -s*I equals R(180)*s*I, so fold
+  // it into the rotation (determinant stays +1).
+  if (sx < 0 && sy < 0 && Math.abs(sx - sy) <= 1e-9 * Math.max(1, Math.abs(sx))) {
+    sx = -sx;
+    sy = -sy;
+    rot += 180;
+  }
   if (sx <= 0 || sy <= 0 || Math.abs(sx - sy) > 1e-9 * Math.max(1, Math.abs(sx))) {
     warnings.push('INSERT "' + ins.name + '" preskočen: nejednoliko ili zrcalno skaliranje nije podržano.');
     return;
@@ -351,18 +408,18 @@ function expandInsert(ins, blocks, out, warnings, depth) {
   for (const e of block.entities) {
     if (e.type === 'INSERT') {
       // Transform the nested insert's placement, then recurse.
-      const p = applyXform(e.x - block.baseX, e.y - block.baseY, sx, ins.rot, ins.x, ins.y);
+      const p = applyXform(e.x - block.baseX, e.y - block.baseY, sx, rot, ins.x, ins.y);
       expandInsert({
         ...e,
         x: p.x,
         y: p.y,
         sx: e.sx * sx,
         sy: e.sy * sy,
-        rot: e.rot + ins.rot,
+        rot: e.rot + rot,
       }, blocks, out, warnings, depth + 1);
     } else {
       const moved = translateEntity(cloneEntity(e), -block.baseX, -block.baseY);
-      out.push(transformEntity(moved, { rotDeg: ins.rot, dx: ins.x, dy: ins.y, scale: sx }));
+      out.push(transformEntity(moved, { rotDeg: rot, dx: ins.x, dy: ins.y, scale: sx }));
     }
   }
 }
@@ -411,8 +468,10 @@ function transformEntity(e, { rotDeg = 0, dx = 0, dy = 0, scale = 1 }) {
     case 'ARC': {
       const c = xf(e.cx, e.cy);
       out.cx = c.x; out.cy = c.y; out.r = e.r * scale;
+      // Preserve the sweep: normalizing both angles independently would
+      // collapse a full-circle arc (a1=0, a2=360) into a zero-sweep arc.
       out.a1 = norm360(e.a1 + rotDeg);
-      out.a2 = norm360(e.a2 + rotDeg);
+      out.a2 = out.a1 + arcSweep(e.a1, e.a2);
       return out;
     }
     case 'POLYLINE': {
@@ -451,6 +510,17 @@ function norm360(a) {
   let r = a % 360;
   if (r < 0) r += 360;
   return r;
+}
+
+/**
+ * CCW sweep of an arc in degrees, in (0, 360]. Equal angles (and any exact
+ * multiple of 360) mean a full circle - consistent with sampleEntity.
+ */
+function arcSweep(a1, a2) {
+  let s = (a2 - a1) % 360;
+  if (s < 0) s += 360;
+  if (s < 1e-9) s = 360;
+  return s;
 }
 
 // ---------------------------------------------------------------------------
@@ -729,12 +799,22 @@ function writeDxf(entities, opts = {}) {
         push(10, fmt(e.cx)); push(20, fmt(e.cy)); push(30, 0);
         push(40, fmt(e.r));
         break;
-      case 'ARC':
-        push(0, 'ARC'); push(8, layer);
-        push(10, fmt(e.cx)); push(20, fmt(e.cy)); push(30, 0);
-        push(40, fmt(e.r));
-        push(50, fmt(e.a1)); push(51, fmt(e.a2));
+      case 'ARC': {
+        // A full-circle arc is written as a CIRCLE - a zero-sweep ARC is
+        // rendered as nothing by most CAM programs.
+        const sweep = arcSweep(e.a1, e.a2);
+        if (sweep >= 360 - 1e-9) {
+          push(0, 'CIRCLE'); push(8, layer);
+          push(10, fmt(e.cx)); push(20, fmt(e.cy)); push(30, 0);
+          push(40, fmt(e.r));
+        } else {
+          push(0, 'ARC'); push(8, layer);
+          push(10, fmt(e.cx)); push(20, fmt(e.cy)); push(30, 0);
+          push(40, fmt(e.r));
+          push(50, fmt(norm360(e.a1))); push(51, fmt(norm360(e.a2)));
+        }
         break;
+      }
       case 'POLYLINE':
         push(0, 'POLYLINE'); push(8, layer);
         push(66, 1); push(70, e.closed ? 1 : 0);
@@ -772,4 +852,5 @@ module.exports = {
   bulgeArcPoints,
   isBinaryDxf,
   norm360,
+  arcSweep,
 };

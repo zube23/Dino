@@ -22,27 +22,32 @@
     <div class="machine">
       <div class="dims">
         <label class="dim">
-          <span>DULJINA ploče (mm)</span>
-          <input id="inWidth" type="text" inputmode="decimal" placeholder="npr. 2000" autocomplete="off">
+          <span>DULJINA (mm)</span>
+          <input id="inWidth" type="text" inputmode="decimal" placeholder="2000" autocomplete="off">
         </label>
         <label class="dim">
-          <span>ŠIRINA ploče (mm)</span>
-          <input id="inHeight" type="text" inputmode="decimal" placeholder="npr. 1000" autocomplete="off">
+          <span>ŠIRINA (mm)</span>
+          <input id="inHeight" type="text" inputmode="decimal" placeholder="1000" autocomplete="off">
         </label>
       </div>
 
       <button id="btnGenerate" class="generate">GENERIRAJ</button>
 
-      <div id="prevSheets" class="prev-sheets" hidden></div>
       <div id="genStatus" class="status" hidden></div>
+      <div id="genWarn" class="warn" hidden></div>
+
+      <section id="offers" class="offers" hidden>
+        <h3 id="offersTitle"></h3>
+        <div id="offerCards" class="cards"></div>
+        <div id="dragHint" class="drag-hint">✋ Karticu ploče povuci mišem ravno u CypCut — ili dvoklik za otvaranje.</div>
+      </section>
 
       <div id="result" class="result" hidden>
         <canvas id="preview" width="1100" height="560"></canvas>
         <div id="stats" class="stats"></div>
-        <div id="unplacedWarn" class="warn" hidden></div>
         <div class="row">
-          <button id="btnOpen" class="btn">OTVORI DXF</button>
-          <button id="btnFolder" class="btn ghost">PRIKAŽI U MAPI</button>
+          <button id="btnOpen" class="btn">OTVORI U CYPCUT</button>
+          <button id="btnSave" class="btn ghost">SPREMI DXF…</button>
         </div>
       </div>
     </div>
@@ -71,18 +76,21 @@
           <label>Rub ploče (mm)
             <input id="setMargin" type="text" inputmode="decimal">
           </label>
+          <label>Ponude ploča sličnih dimenzija — tolerancija (mm)
+            <input id="setHistTol" type="text" inputmode="decimal">
+          </label>
           <label class="check"><input id="setRotate" type="checkbox"> Dozvoli rotaciju 90° <em>(zrcaljenje je uvijek zabranjeno)</em></label>
-          <label class="check"><input id="setAutoOpen" type="checkbox"> Nakon generiranja odmah otvori DXF (SciCut)</label>
+          <label class="check" id="rowAutoOpen"><input id="setAutoOpen" type="checkbox"> Nakon generiranja odmah otvori u CypCut-u</label>
           <label class="check"><input id="setFrame" type="checkbox"> Dodaj okvir ploče u DXF (layer PLOCA)</label>
-          <label>SciCut program (.exe)
+          <label id="rowScicut">Program lasera — CypCut (.exe)
             <span class="pathrow">
               <input id="setScicut" type="text" placeholder="prazno = zadana aplikacija za .dxf">
               <button id="btnPickExe" class="btn small">…</button>
             </span>
           </label>
-          <label>Mapa za spremanje DXF ploča
+          <label id="rowOutput">Zadana mapa za "Spremi DXF"
             <span class="pathrow">
-              <input id="setOutput" type="text" placeholder="prazno = zadana mapa programa">
+              <input id="setOutput" type="text" placeholder="prazno = Dokumenti">
               <button id="btnPickDir" class="btn small">…</button>
             </span>
           </label>
@@ -95,6 +103,18 @@
       </section>
     </div>
   </main>
+
+  <!-- Part inspection modal -->
+  <div id="partModal" class="modal" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <div id="modalTitle"></div>
+        <button id="modalClose" class="btn small ghost">✕ ZATVORI</button>
+      </div>
+      <canvas id="modalCanvas" width="760" height="480"></canvas>
+      <div id="modalInfo" class="modal-info"></div>
+    </div>
+  </div>
 
   <div id="toast" class="toast" hidden></div>
 

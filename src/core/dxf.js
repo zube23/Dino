@@ -63,6 +63,16 @@ function isBinaryDxf(text) {
   return typeof text === 'string' && text.slice(0, 22).indexOf('AutoCAD Binary DXF') !== -1;
 }
 
+/** DXF $INSUNITS values that need conversion into millimeters. */
+const UNIT_TO_MM = {
+  1: 25.4,   // inches
+  2: 304.8,  // feet
+  5: 10,     // centimeters
+  6: 1000,   // meters
+  13: 0.001, // micrometers
+  14: 100,   // decimeters
+};
+
 /**
  * Parse a DXF string.
  * @returns {{entities: Array, warnings: string[]}}
@@ -75,6 +85,7 @@ function parseDxf(text) {
   const warnings = [];
   const blocks = {}; // name -> {baseX, baseY, entities}
   let entities = [];
+  let insunits = 0;
 
   let i = 0;
   while (i < pairs.length) {
@@ -89,6 +100,20 @@ function parseDxf(text) {
         const res = parseEntityList(pairs, i, 'ENDSEC', warnings);
         entities = res.entities;
         i = res.next;
+      } else if (section === 'HEADER') {
+        while (i < pairs.length && !(pairs[i].code === 0 && pairs[i].value === 'ENDSEC')) {
+          if (pairs[i].code === 9 && pairs[i].value === '$INSUNITS') {
+            let j = i + 1;
+            while (j < pairs.length && pairs[j].code !== 9 && pairs[j].code !== 0) {
+              if (pairs[j].code === 70) {
+                insunits = parseInt(pairs[j].value, 10) || 0;
+                break;
+              }
+              j++;
+            }
+          }
+          i++;
+        }
       } else {
         // Skip section
         while (i < pairs.length && !(pairs[i].code === 0 && pairs[i].value === 'ENDSEC')) i++;
@@ -102,7 +127,7 @@ function parseDxf(text) {
   }
 
   // Expand INSERT entities using the parsed blocks.
-  const expanded = [];
+  let expanded = [];
   for (const e of entities) {
     if (e.type === 'INSERT') {
       expandInsert(e, blocks, expanded, warnings, 0);
@@ -110,6 +135,43 @@ function parseDxf(text) {
       expanded.push(e);
     }
   }
+
+  // Some exporters leave ENTITIES empty and put the drawing inside blocks
+  // (e.g. *Model_Space). Fall back to the block contents - but never when an
+  // INSERT was rejected (mirrored/non-uniform placement): recovering the raw
+  // block geometry would silently import it in the wrong orientation.
+  const insertRejected = warnings.some((w) => w.indexOf('INSERT') === 0);
+  if (expanded.length === 0 && !insertRejected && Object.keys(blocks).length > 0) {
+    for (const [name, block] of Object.entries(blocks)) {
+      if (/^\*p/i.test(name)) continue; // paper space
+      for (const e of block.entities) {
+        if (e.type === 'INSERT') {
+          expandInsert({ ...e, x: e.x - block.baseX, y: e.y - block.baseY }, blocks, expanded, warnings, 0);
+        } else {
+          expanded.push(translateEntity(cloneEntity(e), -block.baseX, -block.baseY));
+        }
+      }
+    }
+    if (expanded.length > 0) {
+      warnings.push('Geometrija učitana iz blokova (glavni popis entiteta bio je prazan).');
+    }
+  }
+
+  // POINT entities are marks, not cuts - they would only distort the part's
+  // bounding box (a stray point far from the contour inflates it hugely).
+  const pointCount = expanded.reduce((n, e) => n + (e.type === 'POINT' ? 1 : 0), 0);
+  if (pointCount > 0) {
+    warnings.push('Preskočeno ' + pointCount + ' POINT entiteta (točke se ne režu).');
+    expanded = expanded.filter((e) => e.type !== 'POINT');
+  }
+
+  // Convert to millimeters when the file declares other units.
+  const unitScale = UNIT_TO_MM[insunits] || 1;
+  if (unitScale !== 1 && expanded.length > 0) {
+    expanded = expanded.map((e) => transformEntity(e, { scale: unitScale }));
+    warnings.push('Mjere pretvorene u milimetre (×' + unitScale + ').');
+  }
+
   return { entities: expanded, warnings };
 }
 
@@ -646,8 +708,9 @@ function sampleSpline(e, quality = 1) {
 
   const validKnots = knots.length === ctrl.length + degree + 1 && ctrl.length > degree;
   if (!validKnots) {
-    // Fallback: fit points polyline, else control polygon.
-    if (e.fit && e.fit.length >= 2) return e.fit.map((p) => [p.x, p.y]);
+    // Fallback: smooth curve through the fit points, else control polygon.
+    if (e.fit && e.fit.length >= 3) return catmullRomPoints(e.fit, e.closed, quality);
+    if (e.fit && e.fit.length === 2) return e.fit.map((p) => [p.x, p.y]);
     return ctrl.map((p) => [p.x, p.y]);
   }
 
@@ -660,6 +723,42 @@ function sampleSpline(e, quality = 1) {
     pts.push(deBoor(degree, ctrl, knots, weights, t));
   }
   return pts;
+}
+
+/**
+ * Centripetal-ish Catmull-Rom spline through the given points - used for
+ * SPLINE entities that carry only fit points (no usable knot vector).
+ */
+function catmullRomPoints(pts, closed, quality = 1) {
+  const P = pts.map((p) => [p.x, p.y]);
+  if (P.length < 3) return P;
+  const per = Math.max(4, Math.round(8 * Math.max(0.25, quality)));
+  const segs = closed ? P.length : P.length - 1;
+  const get = (i) => {
+    if (closed) return P[((i % P.length) + P.length) % P.length];
+    return P[Math.min(P.length - 1, Math.max(0, i))];
+  };
+  const out = [];
+  for (let s = 0; s < segs; s++) {
+    const p0 = get(s - 1);
+    const p1 = get(s);
+    const p2 = get(s + 1);
+    const p3 = get(s + 2);
+    for (let k = (s === 0 ? 0 : 1); k <= per; k++) {
+      const t = k / per;
+      const t2 = t * t;
+      const t3 = t2 * t;
+      out.push([
+        0.5 * ((2 * p1[0]) + (-p0[0] + p2[0]) * t
+          + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2
+          + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3),
+        0.5 * ((2 * p1[1]) + (-p0[1] + p2[1]) * t
+          + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2
+          + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3),
+      ]);
+    }
+  }
+  return out;
 }
 
 function deBoor(degree, ctrl, knots, weights, t) {

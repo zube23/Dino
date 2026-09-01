@@ -4,10 +4,10 @@ const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const {
-  app, BrowserWindow, ipcMain, dialog, shell, Menu,
+  app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeImage,
 } = require('electron');
 
-const { analyzePart, generateSheet } = require('../src/core/parts');
+const { analyzePart, buildSheetDxf, generateSheet } = require('../src/core/parts');
 
 let win = null;
 
@@ -17,7 +17,7 @@ let win = null;
 
 const dataDir = () => app.getPath('userData');
 const partsDir = () => path.join(dataDir(), 'parts');
-const defaultOutputDir = () => path.join(dataDir(), 'output');
+const tempDir = () => path.join(dataDir(), 'temp');
 const libraryFile = () => path.join(dataDir(), 'library.json');
 const settingsFile = () => path.join(dataDir(), 'settings.json');
 const historyFile = () => path.join(dataDir(), 'history.json');
@@ -25,17 +25,32 @@ const historyFile = () => path.join(dataDir(), 'history.json');
 const DEFAULT_SETTINGS = {
   gap: 8,          // razmak između partova (mm)
   margin: 10,      // rub ploče (mm)
+  histTol: 20,     // tolerancija za ponude ploča istih dimenzija (mm)
   allowRotate: true,
-  autoOpen: true,  // odmah otvori DXF u SciCut-u / zadanoj aplikaciji
+  autoOpen: true,  // odmah otvori generiranu ploču u CypCut-u
   addFrame: false, // dodaj okvir ploče u DXF (layer PLOCA)
-  scicutPath: '',  // putanja do SciCut .exe (prazno = zadana aplikacija za .dxf)
-  outputDir: '',   // prazno = <userData>/output
+  scicutPath: '',  // putanja do CypCut/SciCut .exe (prazno = zadana aplikacija)
+  outputDir: '',   // zadana mapa za "Spremi DXF"
+  winBounds: null, // zadnja veličina/pozicija prozora
 };
 
 function ensureDirs() {
-  for (const dir of [dataDir(), partsDir(), defaultOutputDir()]) {
+  for (const dir of [dataDir(), partsDir(), tempDir()]) {
     fs.mkdirSync(dir, { recursive: true });
   }
+}
+
+function cleanTempDir() {
+  // Sheets are materialized on demand; anything older than a week is junk.
+  try {
+    const cutoff = Date.now() - 7 * 24 * 3600 * 1000;
+    for (const f of fs.readdirSync(tempDir())) {
+      const p = path.join(tempDir(), f);
+      try {
+        if (fs.statSync(p).mtimeMs < cutoff) fs.unlinkSync(p);
+      } catch { /* skip */ }
+    }
+  } catch { /* temp dir missing */ }
 }
 
 function readJson(file, fallback) {
@@ -48,7 +63,7 @@ function readJson(file, fallback) {
 
 function writeJson(file, data) {
   const tmp = file + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
+  fs.writeFileSync(tmp, JSON.stringify(data), 'utf8');
   fs.renameSync(tmp, file);
 }
 
@@ -60,6 +75,10 @@ function loadLibrary() {
 
 function loadSettings() {
   return { ...DEFAULT_SETTINGS, ...readJson(settingsFile(), {}) };
+}
+
+function saveSettings(s) {
+  writeJson(settingsFile(), s);
 }
 
 function loadHistory() {
@@ -85,23 +104,102 @@ function pad2(n) {
   return String(n).padStart(2, '0');
 }
 
-function timestampName(d) {
-  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate())
-    + '_' + pad2(d.getHours()) + '-' + pad2(d.getMinutes()) + '-' + pad2(d.getSeconds());
+// ---------------------------------------------------------------------------
+// Sheet materialization: history stores only placements (a few KB); the DXF
+// file is (re)created in temp/ the moment it is opened, dragged or saved.
+// ---------------------------------------------------------------------------
+
+function partsForPlacements(placements) {
+  const lib = loadLibrary();
+  const ids = [...new Set(placements.map((p) => p.id))];
+  const parts = [];
+  for (const id of ids) {
+    const entry = lib.parts.find((p) => p.id === id);
+    if (!entry) throw new Error('Part iz ove ploče je u međuvremenu obrisan iz biblioteke.');
+    let content;
+    try {
+      content = fs.readFileSync(path.join(partsDir(), id + '.dxf'), 'utf8');
+    } catch {
+      throw new Error('Nedostaje DXF datoteka parta "' + entry.name + '".');
+    }
+    parts.push({ ...entry, content });
+  }
+  return parts;
 }
 
-// ---------------------------------------------------------------------------
-// IPC
-// ---------------------------------------------------------------------------
+function materializeSheet(entry) {
+  // Legacy entries (v1.0) point at a permanently saved file.
+  if (entry.dxfPath && fs.existsSync(entry.dxfPath)) return entry.dxfPath;
+  if (!Array.isArray(entry.placements) || entry.placements.length === 0) {
+    throw new Error('Za ovu staru ploču ne postoji ni datoteka ni zapis - generirajte je ponovno.');
+  }
+  ensureDirs();
+  const file = path.join(tempDir(), entry.fileName || ('Ploca_' + entry.id + '.dxf'));
+  if (fs.existsSync(file)) return file;
+  const dxf = buildSheetDxf({
+    parts: partsForPlacements(entry.placements),
+    placements: entry.placements,
+    sheetW: entry.width,
+    sheetH: entry.height,
+    addFrame: !!entry.addFrame,
+  });
+  fs.writeFileSync(file, dxf, 'utf8');
+  return file;
+}
 
-function publicPart(entry) {
-  // Everything except heavyweight internals; content stays on disk.
+function findSheet(id) {
+  const entry = loadHistory().sheets.find((s) => s.id === id);
+  if (!entry) throw new Error('Ploča ne postoji u povijesti.');
   return entry;
 }
 
-ipcMain.handle('parts:list', () => {
-  return loadLibrary().parts.map(publicPart);
-});
+// ---------------------------------------------------------------------------
+// Opening in CypCut / default DXF application
+// ---------------------------------------------------------------------------
+
+async function openDxf(dxfPath, settings) {
+  const exe = settings.scicutPath && settings.scicutPath.trim();
+  if (exe) {
+    if (!fs.existsSync(exe)) {
+      return { ok: false, message: 'CypCut nije pronađen na: ' + exe };
+    }
+    // spawn reports launch failures (EACCES, corrupt exe...) asynchronously
+    // via the 'error' event - without a listener that would crash the app.
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (r) => {
+        if (!done) {
+          done = true;
+          resolve(r);
+        }
+      };
+      try {
+        const child = spawn(exe, [dxfPath], { detached: true, stdio: 'ignore' });
+        child.once('error', (e) => finish({ ok: false, message: 'Ne mogu pokrenuti CypCut: ' + e.message }));
+        child.once('spawn', () => {
+          child.unref();
+          finish({ ok: true });
+        });
+      } catch (e) {
+        finish({ ok: false, message: 'Ne mogu pokrenuti CypCut: ' + e.message });
+      }
+    });
+  }
+  const err = await shell.openPath(dxfPath);
+  if (err) {
+    return {
+      ok: false,
+      message: 'Ne mogu otvoriti DXF (' + err + '). Postavite putanju do CypCut programa u Postavkama.',
+    };
+  }
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// IPC: parts
+// ---------------------------------------------------------------------------
+
+ipcMain.handle('parts:list', () => loadLibrary().parts);
 
 ipcMain.handle('parts:add', (ev, files) => {
   ensureDirs();
@@ -129,6 +227,7 @@ ipcMain.handle('parts:add', (ev, files) => {
         area: Math.round(info.area * 1000) / 1000,
         outline: info.outline,
         warnings: info.warnings,
+        entityCount: info.entityCount,
         createdAt: new Date().toISOString(),
       };
       lib.parts.push(entry);
@@ -175,15 +274,20 @@ ipcMain.handle('parts:remove', (ev, id) => {
   return true;
 });
 
+// ---------------------------------------------------------------------------
+// IPC: settings
+// ---------------------------------------------------------------------------
+
 ipcMain.handle('settings:get', () => loadSettings());
 
 ipcMain.handle('settings:set', (ev, patch) => {
   const s = { ...loadSettings() };
   for (const k of Object.keys(DEFAULT_SETTINGS)) {
+    if (k === 'winBounds') continue;
     if (patch && Object.prototype.hasOwnProperty.call(patch, k)) {
-      if (k === 'gap' || k === 'margin') {
+      if (k === 'gap' || k === 'margin' || k === 'histTol') {
         const n = Number(patch[k]);
-        s[k] = Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : s[k];
+        s[k] = Number.isFinite(n) ? Math.min(k === 'histTol' ? 500 : 100, Math.max(0, n)) : s[k];
       } else if (k === 'allowRotate' || k === 'autoOpen' || k === 'addFrame') {
         s[k] = !!patch[k];
       } else {
@@ -191,9 +295,13 @@ ipcMain.handle('settings:set', (ev, patch) => {
       }
     }
   }
-  writeJson(settingsFile(), s);
+  saveSettings(s);
   return s;
 });
+
+// ---------------------------------------------------------------------------
+// IPC: generate + sheets
+// ---------------------------------------------------------------------------
 
 ipcMain.handle('nest:generate', async (ev, req) => {
   ensureDirs();
@@ -249,50 +357,62 @@ ipcMain.handle('nest:generate', async (ev, req) => {
     };
   }
 
-  const outDir = settings.outputDir && settings.outputDir.trim() !== ''
-    ? settings.outputDir : defaultOutputDir();
-  try {
-    fs.mkdirSync(outDir, { recursive: true });
-  } catch { /* handled below on write */ }
   const now = new Date();
+  const id = newId();
   const fileName = 'Ploca_' + Math.round(width) + 'x' + Math.round(height)
-    + '_' + timestampName(now) + '.dxf';
-  const dxfPath = path.join(outDir, fileName);
-  try {
-    fs.writeFileSync(dxfPath, result.dxf, 'utf8');
-  } catch (e) {
-    return { ok: false, message: 'Ne mogu spremiti DXF u ' + outDir + ' (' + e.message + ')' };
-  }
+    + '_' + now.getFullYear() + '-' + pad2(now.getMonth() + 1) + '-' + pad2(now.getDate())
+    + '_' + pad2(now.getHours()) + '-' + pad2(now.getMinutes()) + '-' + pad2(now.getSeconds())
+    + '_' + id.slice(-4) + '.dxf';
 
-  const history = loadHistory();
-  history.sheets.unshift({
-    id: newId(),
+  // Compact history record - no DXF file is written; it is re-created on
+  // demand from these placements.
+  const entry = {
+    id,
     date: now.toISOString(),
     width,
     height,
-    dxfPath,
     fileName,
+    addFrame: !!settings.addFrame,
+    placements: result.placements.map((pl) => ({
+      id: pl.id,
+      x: Math.round(pl.x * 1000) / 1000,
+      y: Math.round(pl.y * 1000) / 1000,
+      w: Math.round(pl.w * 1000) / 1000,
+      h: Math.round(pl.h * 1000) / 1000,
+      rotated: pl.rotated,
+      rotDeg: pl.rotDeg,
+      dx: pl.dx,
+      dy: pl.dy,
+    })),
     summary: result.summary,
     unplaced: result.unplaced,
     utilization: Math.round(result.utilization * 1000) / 1000,
     totalPlaced: result.totalPlaced,
-  });
-  history.sheets = history.sheets.slice(0, 300);
+    capped: result.capped,
+  };
+  const history = loadHistory();
+  history.sheets.unshift(entry);
+  history.sheets = history.sheets.slice(0, 200);
   writeJson(historyFile(), history);
 
   let opened = false;
   let openMessage = '';
   if (settings.autoOpen) {
-    const r = await openDxf(dxfPath, settings);
-    opened = r.ok;
-    openMessage = r.message || '';
+    try {
+      const p = materializeSheet(entry);
+      const r = await openDxf(p, settings);
+      opened = r.ok;
+      openMessage = r.message || '';
+    } catch (e) {
+      openMessage = e && e.message ? e.message : String(e);
+    }
   }
 
   return {
     ok: true,
+    sheetId: id,
     width,
     height,
-    dxfPath,
     fileName,
     placements: result.placements,
     unplaced: result.unplaced,
@@ -307,54 +427,51 @@ ipcMain.handle('nest:generate', async (ev, req) => {
   };
 });
 
-async function openDxf(dxfPath, settings) {
-  const exe = settings.scicutPath && settings.scicutPath.trim();
-  if (exe) {
-    if (!fs.existsSync(exe)) {
-      return { ok: false, message: 'SciCut nije pronađen na: ' + exe };
-    }
-    // spawn reports launch failures (EACCES, corrupt exe...) asynchronously
-    // via the 'error' event - without a listener that would crash the app.
-    return new Promise((resolve) => {
-      let done = false;
-      const finish = (r) => {
-        if (!done) {
-          done = true;
-          resolve(r);
-        }
-      };
-      try {
-        const child = spawn(exe, [dxfPath], { detached: true, stdio: 'ignore' });
-        child.once('error', (e) => finish({ ok: false, message: 'Ne mogu pokrenuti SciCut: ' + e.message }));
-        child.once('spawn', () => {
-          child.unref();
-          finish({ ok: true });
-        });
-      } catch (e) {
-        finish({ ok: false, message: 'Ne mogu pokrenuti SciCut: ' + e.message });
-      }
-    });
+ipcMain.handle('sheet:open', async (ev, id) => {
+  try {
+    const p = materializeSheet(findSheet(id));
+    return openDxf(p, loadSettings());
+  } catch (e) {
+    return { ok: false, message: e && e.message ? e.message : String(e) };
   }
-  const err = await shell.openPath(dxfPath);
-  if (err) {
-    return {
-      ok: false,
-      message: 'Ne mogu otvoriti DXF (' + err + '). Postavite putanju do SciCut programa u Postavkama.',
-    };
-  }
-  return { ok: true };
-}
-
-ipcMain.handle('file:open', (ev, p) => {
-  if (typeof p !== 'string' || !p.toLowerCase().endsWith('.dxf') || !fs.existsSync(p)) {
-    return { ok: false, message: 'Datoteka ne postoji: ' + p };
-  }
-  return openDxf(p, loadSettings());
 });
 
-ipcMain.handle('file:showInFolder', (ev, p) => {
-  if (typeof p === 'string' && fs.existsSync(p)) shell.showItemInFolder(p);
-  return true;
+ipcMain.handle('sheet:saveAs', async (ev, id) => {
+  let entry;
+  let src;
+  try {
+    entry = findSheet(id);
+    src = materializeSheet(entry);
+  } catch (e) {
+    return { ok: false, message: e && e.message ? e.message : String(e) };
+  }
+  const settings = loadSettings();
+  const defDir = settings.outputDir && settings.outputDir.trim() !== ''
+    ? settings.outputDir : app.getPath('documents');
+  const r = await dialog.showSaveDialog(win, {
+    title: 'Spremi DXF ploče',
+    defaultPath: path.join(defDir, entry.fileName || 'Ploca.dxf'),
+    filters: [{ name: 'DXF', extensions: ['dxf'] }],
+  });
+  if (r.canceled || !r.filePath) return { ok: false, canceled: true };
+  try {
+    fs.copyFileSync(src, r.filePath);
+    return { ok: true, path: r.filePath };
+  } catch (e) {
+    return { ok: false, message: 'Ne mogu spremiti: ' + e.message };
+  }
+});
+
+// Native OS drag of the sheet's DXF file (drop it straight into CypCut).
+ipcMain.on('sheet:dragStart', (event, id) => {
+  try {
+    const p = materializeSheet(findSheet(id));
+    let icon = nativeImage.createFromPath(path.join(__dirname, '..', 'build', 'icon.png'));
+    if (!icon.isEmpty()) icon = icon.resize({ width: 32, height: 32 });
+    event.sender.startDrag({ file: p, icon });
+  } catch (e) {
+    event.sender.send('app:toast', 'Povlačenje nije uspjelo: ' + (e && e.message ? e.message : e));
+  }
 });
 
 ipcMain.handle('history:list', () => loadHistory().sheets);
@@ -366,9 +483,13 @@ ipcMain.handle('history:remove', (ev, id) => {
   return true;
 });
 
+// ---------------------------------------------------------------------------
+// IPC: dialogs & info
+// ---------------------------------------------------------------------------
+
 ipcMain.handle('dialog:pickExe', async () => {
   const r = await dialog.showOpenDialog(win, {
-    title: 'Odaberite SciCut program',
+    title: 'Odaberite CypCut program',
     properties: ['openFile'],
     filters: process.platform === 'win32'
       ? [{ name: 'Programi', extensions: ['exe'] }]
@@ -379,7 +500,7 @@ ipcMain.handle('dialog:pickExe', async () => {
 
 ipcMain.handle('dialog:pickDir', async () => {
   const r = await dialog.showOpenDialog(win, {
-    title: 'Odaberite mapu za spremanje DXF ploča',
+    title: 'Odaberite zadanu mapu za "Spremi DXF"',
     properties: ['openDirectory', 'createDirectory'],
   });
   return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0];
@@ -388,7 +509,6 @@ ipcMain.handle('dialog:pickDir', async () => {
 ipcMain.handle('app:info', () => ({
   version: app.getVersion(),
   dataDir: dataDir(),
-  outputDir: loadSettings().outputDir || defaultOutputDir(),
 }));
 
 // ---------------------------------------------------------------------------
@@ -396,11 +516,12 @@ ipcMain.handle('app:info', () => ({
 // ---------------------------------------------------------------------------
 
 function createWindow() {
-  win = new BrowserWindow({
-    width: 1280,
+  const saved = loadSettings().winBounds;
+  const opts = {
+    width: 1100,
     height: 800,
-    minWidth: 1000,
-    minHeight: 650,
+    minWidth: 360,
+    minHeight: 560,
     autoHideMenuBar: true,
     backgroundColor: '#12161c',
     title: 'DinoNest',
@@ -410,9 +531,25 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: true,
     },
-  });
+  };
+  if (saved && Number.isFinite(saved.width) && Number.isFinite(saved.height)) {
+    opts.width = Math.max(360, saved.width);
+    opts.height = Math.max(560, saved.height);
+    if (Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
+      opts.x = saved.x;
+      opts.y = saved.y;
+    }
+  }
+  win = new BrowserWindow(opts);
   win.loadFile(path.join(__dirname, '..', 'src', 'renderer', 'index.html'));
-  win.maximize();
+
+  win.on('close', () => {
+    try {
+      const s = loadSettings();
+      s.winBounds = win.getBounds();
+      saveSettings(s);
+    } catch { /* not critical */ }
+  });
 }
 
 const gotLock = app.requestSingleInstanceLock();
@@ -429,6 +566,7 @@ if (!gotLock) {
   app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
     ensureDirs();
+    cleanTempDir();
     createWindow();
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

@@ -9,7 +9,7 @@ const {
   bboxOfPoints, convexHull, polygonArea, minAreaRect, rotatePoints,
 } = require('../src/core/geometry');
 const { MaxRectsBin, nestParts } = require('../src/core/nest');
-const { analyzePart, generateSheet } = require('../src/core/parts');
+const { analyzePart, generateSheet, buildSheetDxf } = require('../src/core/parts');
 
 let passed = 0;
 let failed = 0;
@@ -344,6 +344,73 @@ function dxfDoc(entityLines) {
 }
 
 // ---------------------------------------------------------------------------
+// Import robustness: units, blocks-only files, stray points, fit splines
+// ---------------------------------------------------------------------------
+
+{
+  // $INSUNITS = 1 (inches) -> converted to mm
+  const doc = [
+    '0', 'SECTION', '2', 'HEADER', '9', '$INSUNITS', '70', '1', '0', 'ENDSEC',
+    '0', 'SECTION', '2', 'ENTITIES',
+    '0', 'LINE', '8', '0', '10', '0', '20', '0', '11', '1', '21', '0',
+    '0', 'CIRCLE', '8', '0', '10', '2', '20', '0', '40', '0.5',
+    '0', 'ENDSEC', '0', 'EOF',
+  ].join('\n');
+  const { entities, warnings } = parseDxf(doc);
+  check('inches: line converted', approx(entities[0].x2, 25.4), JSON.stringify(entities[0]));
+  check('inches: circle converted', approx(entities[1].cx, 50.8) && approx(entities[1].r, 12.7));
+  check('inches: warns', warnings.some((w) => w.indexOf('milimetre') !== -1), warnings.join(';'));
+}
+
+{
+  // Geometry only inside blocks (empty ENTITIES) still imports
+  const doc = [
+    '0', 'SECTION', '2', 'BLOCKS',
+    '0', 'BLOCK', '2', 'PART', '10', '5', '20', '5',
+    '0', 'CIRCLE', '8', '0', '10', '10', '20', '10', '40', '3',
+    '0', 'ENDBLK',
+    '0', 'BLOCK', '2', '*Paper_Space', '10', '0', '20', '0',
+    '0', 'LINE', '8', '0', '10', '0', '20', '0', '11', '500', '21', '0',
+    '0', 'ENDBLK',
+    '0', 'ENDSEC',
+    '0', 'SECTION', '2', 'ENTITIES', '0', 'ENDSEC', '0', 'EOF',
+  ].join('\n');
+  const { entities, warnings } = parseDxf(doc);
+  check('blocks fallback: imported', entities.length === 1 && entities[0].type === 'CIRCLE',
+    JSON.stringify(entities.map((e) => e.type)));
+  check('blocks fallback: base point', approx(entities[0].cx, 5) && approx(entities[0].cy, 5));
+  check('blocks fallback: warns', warnings.some((w) => w.indexOf('blokova') !== -1), warnings.join(';'));
+}
+
+{
+  // Stray POINT entities are dropped (they would inflate the bounding box)
+  const doc = dxfDoc([
+    '0', 'POINT', '8', '0', '10', '1000', '20', '1000',
+    '0', 'POINT', '8', '0', '10', '-500', '20', '0',
+    '0', 'CIRCLE', '8', '0', '10', '0', '20', '0', '40', '5',
+  ]);
+  const { entities, warnings } = parseDxf(doc);
+  check('points dropped', entities.length === 1 && entities[0].type === 'CIRCLE');
+  check('points warn', warnings.some((w) => w.indexOf('POINT') !== -1), warnings.join(';'));
+  const info = analyzePart(doc);
+  check('points do not inflate bbox', approx(info.w, 10, 0.01) && approx(info.h, 10, 0.01),
+    JSON.stringify([info.w, info.h]));
+}
+
+{
+  // SPLINE with only fit points: smooth curve through the points
+  const spl = {
+    type: 'SPLINE', layer: '0', degree: 3, closed: false,
+    knots: [], weights: [], ctrl: [],
+    fit: [{ x: 0, y: 0 }, { x: 10, y: 10 }, { x: 20, y: 0 }],
+  };
+  const pts = sampleEntity(spl, 2)[0];
+  check('fit spline endpoints', approx(pts[0][0], 0) && approx(pts[pts.length - 1][0], 20));
+  check('fit spline through fit point', pts.some(([x, y]) => Math.hypot(x - 10, y - 10) < 0.01));
+  check('fit spline is smooth', pts.length > 10, 'pts=' + pts.length);
+}
+
+// ---------------------------------------------------------------------------
 // Splines and ellipses
 // ---------------------------------------------------------------------------
 
@@ -668,6 +735,33 @@ function rectsOverlap(a, b) {
   const circles = entities.filter((e) => e.type === 'CIRCLE').length;
   check('e2e circle count', circles === 3 + 2 * res.placedCounts.B,
     'circles=' + circles + ' B=' + res.placedCounts.B);
+}
+
+{
+  // buildSheetDxf re-creates the exact same DXF from stored placements
+  const partA = writeDxf([
+    { type: 'POLYLINE', layer: '0', closed: true, verts: [{ x: 0, y: 0, bulge: 0 }, { x: 120, y: 0, bulge: 0.3 }, { x: 120, y: 70, bulge: 0 }, { x: 0, y: 70, bulge: 0 }] },
+    { type: 'CIRCLE', layer: '0', cx: 30, cy: 30, r: 8 },
+  ]);
+  const infoA = analyzePart(partA);
+  const parts = [{
+    id: 'A', name: 'test', content: partA, preRotDeg: infoA.preRotDeg,
+    w: infoA.w, h: infoA.h, area: infoA.area, priority: 1, mode: 'fixed', count: 4,
+  }];
+  const res = generateSheet({ sheetW: 500, sheetH: 400, margin: 10, gap: 6, parts });
+  check('rebuild: placements carry transform',
+    res.placements.every((pl) => Number.isFinite(pl.rotDeg) && Number.isFinite(pl.dx) && Number.isFinite(pl.dy)));
+  const rebuilt = buildSheetDxf({
+    parts, placements: res.placements, sheetW: 500, sheetH: 400,
+  });
+  check('rebuild: identical dxf', rebuilt === res.dxf,
+    'len ' + rebuilt.length + ' vs ' + res.dxf.length);
+
+  let threw = false;
+  try {
+    buildSheetDxf({ parts: [], placements: res.placements, sheetW: 500, sheetH: 400 });
+  } catch { threw = true; }
+  check('rebuild: missing part rejects', threw);
 }
 
 {

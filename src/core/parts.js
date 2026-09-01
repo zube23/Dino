@@ -180,6 +180,11 @@ function generateSheet(opts) {
       w: pl.w,
       h: pl.h,
       rotated: pl.rotated,
+      // Exact rigid transform (entity' = R(rotDeg)*entity + (dx,dy)) - enough
+      // to re-create the identical sheet DXF later without storing the file.
+      rotDeg,
+      dx,
+      dy,
       outline: or.rotated.map((poly) => decimate(
         poly.map(([x, y]) => [round3(x + dx), round3(y + dy)]),
         80,
@@ -226,4 +231,56 @@ function generateSheet(opts) {
   };
 }
 
-module.exports = { analyzePart, generateSheet };
+/**
+ * Re-create a sheet DXF from stored placements (the compact history record)
+ * without re-running the nesting. Produces byte-identical output to the
+ * original generateSheet call for the same parts.
+ *
+ * @param {object} opts
+ * @param {Array} opts.parts       library entries with `content` for every
+ *                                 part id used by the placements
+ * @param {Array} opts.placements  [{id, rotDeg, dx, dy}]
+ * @param {number} opts.sheetW, opts.sheetH
+ * @param {boolean} [opts.addFrame=false]
+ * @returns {string} DXF text
+ */
+function buildSheetDxf(opts) {
+  const { parts = [], placements = [], sheetW, sheetH, addFrame = false } = opts;
+  const cache = {};
+  const getEntities = (id) => {
+    if (!cache[id]) {
+      const p = parts.find((q) => q.id === id);
+      if (!p || typeof p.content !== 'string') {
+        throw new Error('Part iz ove ploče više ne postoji u biblioteci.');
+      }
+      cache[id] = parseDxf(p.content).entities;
+    }
+    return cache[id];
+  };
+
+  const outEntities = [];
+  for (const pl of placements) {
+    for (const e of getEntities(pl.id)) {
+      outEntities.push(transformEntity(e, { rotDeg: pl.rotDeg || 0, dx: pl.dx || 0, dy: pl.dy || 0 }));
+    }
+  }
+  if (addFrame) {
+    outEntities.push({
+      type: 'POLYLINE',
+      layer: 'PLOCA',
+      closed: true,
+      verts: [
+        { x: 0, y: 0, bulge: 0 },
+        { x: sheetW, y: 0, bulge: 0 },
+        { x: sheetW, y: sheetH, bulge: 0 },
+        { x: 0, y: sheetH, bulge: 0 },
+      ],
+    });
+  }
+  if (outEntities.length === 0) {
+    throw new Error('Ploča je prazna - nema ničega za zapisati.');
+  }
+  return writeDxf(outEntities);
+}
+
+module.exports = { analyzePart, generateSheet, buildSheetDxf };

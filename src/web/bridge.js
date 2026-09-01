@@ -5,7 +5,7 @@
  * and SAMPLE_FILES/SAMPLE_CONFIG are provided by the bundle.
  */
 (function () {
-  const { analyzePart, generateSheet } = __req('parts');
+  const { analyzePart, buildSheetDxf, generateSheet } = __req('parts');
 
   // ---- storage (localStorage with in-memory fallback) ----
   const mem = {};
@@ -27,7 +27,7 @@
   }
 
   const DEFAULT_SETTINGS = {
-    gap: 8, margin: 10, allowRotate: true, autoOpen: false,
+    gap: 8, margin: 10, histTol: 20, allowRotate: true, autoOpen: false,
     addFrame: false, scicutPath: '', outputDir: '',
   };
 
@@ -55,6 +55,7 @@
       area: Math.round(info.area * 1000) / 1000,
       outline: info.outline,
       warnings: info.warnings,
+      entityCount: info.entityCount,
       createdAt: new Date().toISOString(),
       content,
     };
@@ -86,6 +87,29 @@
   };
 
   function pad2(n) { return String(n).padStart(2, '0'); }
+
+  function getSettings() {
+    return { ...DEFAULT_SETTINGS, ...load('settings', {}) };
+  }
+
+  function findSheet(id) {
+    const entry = load('history', []).find((s) => s.id === id);
+    if (!entry) throw new Error('Ploča ne postoji u povijesti.');
+    return entry;
+  }
+
+  function sheetDxf(entry) {
+    if (!Array.isArray(entry.placements) || entry.placements.length === 0) {
+      throw new Error('Za ovu staru ploču nema zapisa - generirajte je ponovno.');
+    }
+    return buildSheetDxf({
+      parts: getLib(),
+      placements: entry.placements,
+      sheetW: entry.width,
+      sheetH: entry.height,
+      addFrame: !!entry.addFrame,
+    });
+  }
 
   // ---- file download (artifact capability, else plain browser save) ----
   async function download(name, text) {
@@ -121,6 +145,9 @@
 
   // ---- the bridge ----
   window.dino = {
+    isWeb: true,
+    canDrag: false, // native drag-out works only in the desktop app
+
     listParts: async () => getLib().map(pub),
 
     addParts: async (files) => {
@@ -167,15 +194,15 @@
       return true;
     },
 
-    getSettings: async () => ({ ...DEFAULT_SETTINGS, ...load('settings', {}) }),
+    getSettings: async () => getSettings(),
 
     setSettings: async (patch) => {
-      const s = { ...DEFAULT_SETTINGS, ...load('settings', {}) };
+      const s = getSettings();
       for (const k of Object.keys(DEFAULT_SETTINGS)) {
         if (patch && Object.prototype.hasOwnProperty.call(patch, k)) {
-          if (k === 'gap' || k === 'margin') {
+          if (k === 'gap' || k === 'margin' || k === 'histTol') {
             const n = Number(patch[k]);
-            s[k] = Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : s[k];
+            s[k] = Number.isFinite(n) ? Math.min(k === 'histTol' ? 500 : 100, Math.max(0, n)) : s[k];
           } else if (k === 'allowRotate' || k === 'autoOpen' || k === 'addFrame') {
             s[k] = !!patch[k];
           } else {
@@ -196,7 +223,7 @@
       if (width > 100000 || height > 100000) {
         return { ok: false, message: 'Dimenzije ploče su prevelike.' };
       }
-      const settings = { ...DEFAULT_SETTINGS, ...load('settings', {}) };
+      const settings = getSettings();
       const active = getLib().filter((p) => p.enabled);
       if (active.length === 0) {
         return { ok: false, message: 'Nema uključenih partova. Dodajte ih u PRIPREMI.' };
@@ -225,38 +252,49 @@
         };
       }
       const now = new Date();
+      const id = newId();
       const fileName = 'Ploca_' + Math.round(width) + 'x' + Math.round(height)
         + '_' + now.getFullYear() + '-' + pad2(now.getMonth() + 1) + '-' + pad2(now.getDate())
-        + '_' + pad2(now.getHours()) + '-' + pad2(now.getMinutes()) + '-' + pad2(now.getSeconds()) + '.dxf';
+        + '_' + pad2(now.getHours()) + '-' + pad2(now.getMinutes()) + '-' + pad2(now.getSeconds())
+        + '_' + id.slice(-4) + '.dxf';
 
-      let history = load('history', []);
-      history.unshift({
-        id: newId(),
+      const entry = {
+        id,
         date: now.toISOString(),
         width,
         height,
-        dxfPath: fileName,
         fileName,
-        dxf: result.dxf,
+        addFrame: !!settings.addFrame,
+        placements: result.placements.map((pl) => ({
+          id: pl.id,
+          x: Math.round(pl.x * 1000) / 1000,
+          y: Math.round(pl.y * 1000) / 1000,
+          w: Math.round(pl.w * 1000) / 1000,
+          h: Math.round(pl.h * 1000) / 1000,
+          rotated: pl.rotated,
+          rotDeg: pl.rotDeg,
+          dx: pl.dx,
+          dy: pl.dy,
+        })),
         summary: result.summary,
         unplaced: result.unplaced,
         utilization: Math.round(result.utilization * 1000) / 1000,
         totalPlaced: result.totalPlaced,
-      });
-      history = history.slice(0, 10);
-      // DXF text is bulky; keep it only on recent entries and degrade
-      // gracefully if the browser storage is full.
-      for (let i = 5; i < history.length; i++) delete history[i].dxf;
+        capped: result.capped,
+      };
+      let history = load('history', []);
+      history.unshift(entry);
+      history = history.slice(0, 60);
       if (!store('history', history)) {
-        for (let i = 1; i < history.length; i++) delete history[i].dxf;
+        history = history.slice(0, 10);
         store('history', history);
       }
 
       return {
         ok: true,
+        sheetId: id,
         width,
         height,
-        dxfPath: fileName,
         fileName,
         placements: result.placements,
         unplaced: result.unplaced,
@@ -271,22 +309,25 @@
       };
     },
 
-    openFile: async (p) => {
-      const entry = load('history', []).find((s) => s.fileName === p || s.dxfPath === p);
-      if (!entry || !entry.dxf) {
-        return { ok: false, message: 'DXF ove ploče više nije spremljen u pregledniku - generirajte ponovno.' };
+    openSheet: async (id) => {
+      try {
+        const entry = findSheet(id);
+        return download(entry.fileName || 'Ploca.dxf', sheetDxf(entry));
+      } catch (e) {
+        return { ok: false, message: (e && e.message) || String(e) };
       }
-      return download(entry.fileName, entry.dxf);
     },
 
-    showInFolder: async () => true,
-    listHistory: async () => load('history', []).map(({ dxf, ...rest }) => rest),
+    saveSheet: async (id) => window.dino.openSheet(id),
+    dragSheet: () => {},
+
+    listHistory: async () => load('history', []),
     removeHistory: async (id) => {
       store('history', load('history', []).filter((s) => s.id !== id));
       return true;
     },
     pickExe: async () => null,
     pickDir: async () => null,
-    appInfo: async () => ({ version: '1.0.0 · web proba', dataDir: '', outputDir: '' }),
+    appInfo: async () => ({ version: '1.1.0 · web proba', dataDir: '' }),
   };
 })();

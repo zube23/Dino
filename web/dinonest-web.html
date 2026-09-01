@@ -30,31 +30,32 @@ html, body {
   background: var(--bg);
   color: var(--text);
   font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
-  font-size: 16px;
+  font-size: 15px;
 }
 
 /* ---------------- top bar ---------------- */
 .topbar {
   display: flex;
   align-items: center;
-  gap: 24px;
-  padding: 10px 22px;
+  gap: 14px;
+  padding: 8px 14px;
   background: var(--bg2);
   border-bottom: 1px solid var(--line);
   position: sticky;
   top: 0;
   z-index: 10;
+  flex-wrap: wrap;
 }
-.brand { font-size: 22px; font-weight: 800; letter-spacing: 0.5px; }
-.tabs { display: flex; gap: 8px; }
+.brand { font-size: 18px; font-weight: 800; letter-spacing: 0.5px; white-space: nowrap; }
+.tabs { display: flex; gap: 6px; }
 .tab {
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 700;
-  padding: 10px 28px;
+  padding: 8px 18px;
   background: transparent;
   color: var(--muted);
   border: 2px solid var(--line);
-  border-radius: 10px;
+  border-radius: 9px;
   cursor: pointer;
 }
 .tab.active {
@@ -63,9 +64,9 @@ html, body {
   border-color: var(--accent);
 }
 .spacer { flex: 1; }
-.version { color: var(--muted); font-size: 13px; }
+.version { color: var(--muted); font-size: 12px; }
 
-.view { padding: 24px; }
+.view { padding: 14px; }
 
 /* ---------------- machine view ---------------- */
 .machine {
@@ -73,48 +74,50 @@ html, body {
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 14px;
   align-items: stretch;
 }
 .dims {
-  display: flex;
-  gap: 24px;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
 }
 .dim {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  font-size: 20px;
+  gap: 6px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--muted);
   letter-spacing: 1px;
+  min-width: 0;
 }
 .dim input {
-  width: 340px;
-  font-size: 54px;
+  width: 100%;
+  font-size: clamp(24px, 6vw, 40px);
   font-weight: 800;
   text-align: center;
-  padding: 14px 10px;
+  padding: 8px 8px;
   color: var(--text);
   background: var(--card);
-  border: 3px solid var(--line);
-  border-radius: 14px;
+  border: 2px solid var(--line);
+  border-radius: 12px;
   outline: none;
+  min-width: 0;
 }
 .dim input:focus { border-color: var(--accent); }
 
 .generate {
-  font-size: 44px;
+  font-size: clamp(20px, 4.5vw, 30px);
   font-weight: 900;
-  letter-spacing: 3px;
-  padding: 26px 20px;
+  letter-spacing: 2px;
+  padding: 14px 16px;
   border: none;
-  border-radius: 16px;
+  border-radius: 13px;
   background: linear-gradient(180deg, var(--accent2), var(--accent));
   color: #14100a;
   cursor: pointer;
-  box-shadow: 0 6px 24px rgba(255, 122, 26, 0.35);
+  box-shadow: 0 4px 18px rgba(255, 122, 26, 0.3);
 }
 .generate:hover { filter: brightness(1.06); }
 .generate:active { transform: translateY(2px); }
@@ -123,29 +126,74 @@ html, body {
   cursor: wait;
 }
 
-.prev-sheets {
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 12px 16px;
-  color: var(--muted);
-}
-.prev-sheets .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
-
 .status {
-  font-size: 20px;
-  padding: 14px 18px;
-  border-radius: 12px;
+  font-size: 16px;
+  padding: 10px 14px;
+  border-radius: 10px;
   background: var(--card);
   border: 1px solid var(--line);
 }
 .status.err { color: var(--err); border-color: var(--err); }
-.status.ok { color: var(--ok); }
 
+.warn {
+  color: #201a08;
+  background: var(--warn);
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+/* ---------------- sheet offers ---------------- */
+.offers h3 { margin: 2px 0 8px; font-size: 15px; color: var(--muted); font-weight: 700; }
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 10px;
+}
+.sheet-card {
+  background: var(--card);
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  padding: 8px;
+  cursor: grab;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+  user-select: none;
+}
+.sheet-card:hover { border-color: #4a5a6e; }
+.sheet-card.selected { border-color: var(--accent); }
+.sheet-card:active { cursor: grabbing; }
+.sheet-card canvas {
+  width: 100%;
+  background: #0d1015;
+  border-radius: 7px;
+  pointer-events: none;
+}
+.sheet-card .sc-line1 { font-weight: 800; font-size: 15px; }
+.sheet-card .sc-line2 { color: var(--muted); font-size: 12px; }
+.sheet-card .badge {
+  position: absolute;
+  top: -8px;
+  right: 10px;
+  background: var(--ok);
+  color: #06250f;
+  font-size: 11px;
+  font-weight: 900;
+  padding: 2px 9px;
+  border-radius: 99px;
+  letter-spacing: 1px;
+}
+.sheet-card .badge.old { background: #58a6ff; color: #04182e; }
+.drag-hint { color: var(--muted); font-size: 13px; margin-top: 8px; }
+
+/* ---------------- result ---------------- */
 .result {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
   align-items: center;
 }
 #preview {
@@ -155,24 +203,16 @@ html, body {
   border: 1px solid var(--line);
   border-radius: 12px;
 }
-.stats { font-size: 18px; color: var(--text); text-align: center; }
-.stats .big { font-size: 24px; font-weight: 800; color: var(--ok); }
-.stats .files { color: var(--muted); font-size: 14px; margin-top: 4px; word-break: break-all; }
+.stats { font-size: 15px; color: var(--text); text-align: center; }
+.stats .big { font-size: 19px; font-weight: 800; color: var(--ok); }
+.stats .files { color: var(--muted); font-size: 12px; margin-top: 3px; word-break: break-all; }
 
-.warn {
-  color: #201a08;
-  background: var(--warn);
-  border-radius: 10px;
-  padding: 10px 14px;
-  font-weight: 600;
-}
-
-.row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 
 .btn {
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 700;
-  padding: 12px 22px;
+  padding: 10px 18px;
   border-radius: 10px;
   border: 2px solid var(--accent);
   background: var(--accent);
@@ -180,7 +220,7 @@ html, body {
   cursor: pointer;
 }
 .btn.ghost { background: transparent; color: var(--accent); }
-.btn.small { font-size: 14px; padding: 6px 12px; }
+.btn.small { font-size: 13px; padding: 5px 10px; }
 .btn.danger { background: transparent; border-color: var(--err); color: var(--err); }
 .btn:hover { filter: brightness(1.08); }
 
@@ -190,106 +230,154 @@ html, body {
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 14px;
 }
 .card {
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 14px;
-  padding: 18px 20px;
+  padding: 14px 16px;
 }
-.card h2 { margin: 0 0 14px; font-size: 20px; letter-spacing: 1px; }
+.card h2 { margin: 0 0 12px; font-size: 17px; letter-spacing: 1px; }
 
 .drop {
   border: 2px dashed var(--line);
   border-radius: 12px;
-  padding: 22px;
+  padding: 16px;
   text-align: center;
   color: var(--muted);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   align-items: center;
 }
 .drop.dragover { border-color: var(--accent); color: var(--accent); background: rgba(255,122,26,0.06); }
 
-.parts { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+.parts { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
 .part-row {
-  display: grid;
-  grid-template-columns: 100px 1fr 130px 110px 170px 130px 110px 44px;
-  gap: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
   align-items: center;
   background: var(--bg2);
   border: 1px solid var(--line);
   border-radius: 10px;
-  padding: 10px 12px;
+  padding: 8px 10px;
 }
 .part-row.disabled { opacity: 0.45; }
 .part-thumb {
-  width: 96px;
-  height: 72px;
+  width: 84px;
+  height: 62px;
   background: #0d1015;
   border-radius: 6px;
+  cursor: zoom-in;
+  flex: 0 0 auto;
 }
-.part-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.part-main { display: flex; flex-direction: column; gap: 3px; min-width: 150px; flex: 1 1 150px; }
 .part-main input {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   background: transparent;
   color: var(--text);
   border: 1px solid transparent;
   border-radius: 6px;
-  padding: 4px 6px;
+  padding: 3px 6px;
 }
 .part-main input:hover, .part-main input:focus { border-color: var(--line); background: var(--bg); outline: none; }
-.part-dims { color: var(--muted); font-size: 13px; }
-.part-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.part-dims { color: var(--muted); font-size: 12px; }
+.part-dims .link { color: var(--warn); cursor: pointer; text-decoration: underline; }
+.part-field { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--muted); width: 108px; flex: 0 0 auto; }
 .part-field input, .part-field select {
-  font-size: 16px;
-  padding: 6px 8px;
+  font-size: 15px;
+  padding: 5px 7px;
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--line);
   border-radius: 8px;
   width: 100%;
 }
-.part-field.check { flex-direction: row; align-items: center; gap: 8px; font-size: 14px; }
-.part-field input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--accent); }
+.part-field.check { flex-direction: row; align-items: center; gap: 7px; font-size: 13px; width: auto; }
+.part-field input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent); }
 
-.empty { color: var(--muted); padding: 12px 4px; }
+.empty { color: var(--muted); padding: 10px 4px; }
 
-.settings-grid { display: flex; flex-direction: column; gap: 14px; max-width: 720px; }
-.settings-grid label { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 14px; }
-.settings-grid label.check { flex-direction: row; align-items: center; font-size: 16px; color: var(--text); gap: 10px; }
-.settings-grid label.check em { color: var(--muted); font-style: normal; font-size: 13px; }
+.settings-grid { display: flex; flex-direction: column; gap: 12px; max-width: 720px; }
+.settings-grid label { display: flex; flex-direction: column; gap: 5px; color: var(--muted); font-size: 13px; }
+.settings-grid label.check { flex-direction: row; align-items: center; font-size: 15px; color: var(--text); gap: 9px; flex-wrap: wrap; }
+.settings-grid label.check em { color: var(--muted); font-style: normal; font-size: 12px; }
 .settings-grid input[type="text"] {
-  font-size: 16px;
-  padding: 9px 10px;
+  font-size: 15px;
+  padding: 8px 10px;
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--line);
   border-radius: 8px;
   width: 100%;
 }
-.settings-grid input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--accent); }
+.settings-grid input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent); }
 .pathrow { display: flex; gap: 8px; }
 .pathrow input { flex: 1; }
 
-.history { display: flex; flex-direction: column; gap: 8px; }
+.history { display: flex; flex-direction: column; gap: 7px; }
 .history-row {
-  display: grid;
-  grid-template-columns: 170px 150px 1fr 90px auto;
-  gap: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   align-items: center;
   background: var(--bg2);
   border: 1px solid var(--line);
   border-radius: 10px;
-  padding: 10px 12px;
-  font-size: 15px;
+  padding: 8px 10px;
+  font-size: 14px;
 }
-.history-row .hdims { font-weight: 700; }
-.history-row .hsum { color: var(--muted); font-size: 13px; }
-.history-row .hbtns { display: flex; gap: 8px; }
+.history-row .hdate { color: var(--muted); font-size: 12px; width: 110px; flex: 0 0 auto; }
+.history-row .hdims { font-weight: 700; width: 130px; flex: 0 0 auto; }
+.history-row .hsum { color: var(--muted); font-size: 12px; flex: 1 1 160px; min-width: 120px; }
+.history-row .hbtns { display: flex; gap: 6px; flex: 0 0 auto; }
+
+/* ---------------- part modal ---------------- */
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 8, 12, 0.8);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.modal-box {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  max-width: 820px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.modal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.modal-head div { font-size: 17px; font-weight: 800; }
+#modalCanvas { width: 100%; background: #0d1015; border-radius: 8px; }
+.modal-info { color: var(--muted); font-size: 13px; white-space: pre-wrap; }
+
+/* ---------------- toast & misc ---------------- */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  background: var(--warn);
+  color: #201a08;
+  border-radius: 10px;
+  padding: 11px 18px;
+  font-weight: 700;
+  font-size: 14px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  z-index: 100;
+  max-width: 86vw;
+}
 
 .nobridge {
   position: fixed;
@@ -302,20 +390,25 @@ html, body {
   z-index: 100;
 }
 
-.toast {
-  position: fixed;
-  left: 50%;
-  bottom: 26px;
-  transform: translateX(-50%);
-  background: var(--warn);
-  color: #201a08;
-  border-radius: 10px;
-  padding: 12px 20px;
-  font-weight: 700;
-  font-size: 16px;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
-  z-index: 100;
-  max-width: 80vw;
+.demo-note {
+  background: #1c2836;
+  color: #a9bdd2;
+  padding: 7px 14px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--line);
+}
+.demo-note a { color: var(--accent2); font-weight: 700; }
+
+/* ---------------- narrow window (beside CypCut) ---------------- */
+@media (max-width: 560px) {
+  .view { padding: 10px; }
+  .topbar { gap: 8px; padding: 6px 10px; }
+  .brand { font-size: 15px; }
+  .tab { font-size: 13px; padding: 6px 12px; }
+  .dims { gap: 8px; }
+  .generate { letter-spacing: 1px; }
+  .cards { grid-template-columns: 1fr; }
+  .history-row .hdate, .history-row .hdims { width: auto; }
 }
 
 .demo-note {
@@ -339,33 +432,39 @@ html, body {
     <div class="spacer"></div>
     <div id="appVersion" class="version"></div>
   </header>
-  <div class="demo-note">Probna verzija u pregledniku — sve radi lokalno, ništa se ne šalje nikamo. Pravi program za Windows (s otvaranjem u SciCut-u): <a href="https://github.com/zube23/Dino/releases/tag/v1.0.0" target="_blank" rel="noopener">preuzmi DinoNest</a>.</div>
+  <div class="demo-note">Probna verzija u pregledniku — sve radi lokalno, ništa se ne šalje nikamo. Pravi program za Windows (s drag &amp; drop u CypCut): <a href="https://github.com/zube23/Dino/releases" target="_blank" rel="noopener">preuzmi DinoNest</a>.</div>
 
   <!-- ======================= STROJ ======================= -->
   <main id="viewStroj" class="view">
     <div class="machine">
       <div class="dims">
         <label class="dim">
-          <span>DULJINA ploče (mm)</span>
-          <input id="inWidth" type="text" inputmode="decimal" placeholder="npr. 2000" autocomplete="off">
+          <span>DULJINA (mm)</span>
+          <input id="inWidth" type="text" inputmode="decimal" placeholder="2000" autocomplete="off">
         </label>
         <label class="dim">
-          <span>ŠIRINA ploče (mm)</span>
-          <input id="inHeight" type="text" inputmode="decimal" placeholder="npr. 1000" autocomplete="off">
+          <span>ŠIRINA (mm)</span>
+          <input id="inHeight" type="text" inputmode="decimal" placeholder="1000" autocomplete="off">
         </label>
       </div>
 
       <button id="btnGenerate" class="generate">GENERIRAJ</button>
 
-      <div id="prevSheets" class="prev-sheets" hidden></div>
       <div id="genStatus" class="status" hidden></div>
+      <div id="genWarn" class="warn" hidden></div>
+
+      <section id="offers" class="offers" hidden>
+        <h3 id="offersTitle"></h3>
+        <div id="offerCards" class="cards"></div>
+        <div id="dragHint" class="drag-hint">✋ Karticu ploče povuci mišem ravno u CypCut — ili dvoklik za otvaranje.</div>
+      </section>
 
       <div id="result" class="result" hidden>
         <canvas id="preview" width="1100" height="560"></canvas>
         <div id="stats" class="stats"></div>
-        <div id="unplacedWarn" class="warn" hidden></div>
         <div class="row">
-          <button id="btnOpen" class="btn">💾 PREUZMI DXF</button>
+          <button id="btnOpen" class="btn">OTVORI U CYPCUT</button>
+          <button id="btnSave" class="btn ghost">SPREMI DXF…</button>
         </div>
       </div>
     </div>
@@ -394,17 +493,21 @@ html, body {
           <label>Rub ploče (mm)
             <input id="setMargin" type="text" inputmode="decimal">
           </label>
+          <label>Ponude ploča sličnih dimenzija — tolerancija (mm)
+            <input id="setHistTol" type="text" inputmode="decimal">
+          </label>
           <label class="check"><input id="setRotate" type="checkbox"> Dozvoli rotaciju 90° <em>(zrcaljenje je uvijek zabranjeno)</em></label>
+          <label class="check" id="rowAutoOpen"><input id="setAutoOpen" type="checkbox"> Nakon generiranja odmah otvori u CypCut-u</label>
           <label class="check"><input id="setFrame" type="checkbox"> Dodaj okvir ploče u DXF (layer PLOCA)</label>
-          <label hidden>SciCut program (.exe)
+          <label id="rowScicut">Program lasera — CypCut (.exe)
             <span class="pathrow">
               <input id="setScicut" type="text" placeholder="prazno = zadana aplikacija za .dxf">
               <button id="btnPickExe" class="btn small">…</button>
             </span>
           </label>
-          <label hidden>Mapa za spremanje DXF ploča
+          <label id="rowOutput">Zadana mapa za "Spremi DXF"
             <span class="pathrow">
-              <input id="setOutput" type="text" placeholder="prazno = zadana mapa programa">
+              <input id="setOutput" type="text" placeholder="prazno = Dokumenti">
               <button id="btnPickDir" class="btn small">…</button>
             </span>
           </label>
@@ -417,6 +520,18 @@ html, body {
       </section>
     </div>
   </main>
+
+  <!-- Part inspection modal -->
+  <div id="partModal" class="modal" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <div id="modalTitle"></div>
+        <button id="modalClose" class="btn small ghost">✕ ZATVORI</button>
+      </div>
+      <canvas id="modalCanvas" width="760" height="480"></canvas>
+      <div id="modalInfo" class="modal-info"></div>
+    </div>
+  </div>
 
   <div id="toast" class="toast" hidden></div>
 
@@ -497,6 +612,16 @@ function isBinaryDxf(text) {
   return typeof text === 'string' && text.slice(0, 22).indexOf('AutoCAD Binary DXF') !== -1;
 }
 
+/** DXF $INSUNITS values that need conversion into millimeters. */
+const UNIT_TO_MM = {
+  1: 25.4,   // inches
+  2: 304.8,  // feet
+  5: 10,     // centimeters
+  6: 1000,   // meters
+  13: 0.001, // micrometers
+  14: 100,   // decimeters
+};
+
 /**
  * Parse a DXF string.
  * @returns {{entities: Array, warnings: string[]}}
@@ -509,6 +634,7 @@ function parseDxf(text) {
   const warnings = [];
   const blocks = {}; // name -> {baseX, baseY, entities}
   let entities = [];
+  let insunits = 0;
 
   let i = 0;
   while (i < pairs.length) {
@@ -523,6 +649,20 @@ function parseDxf(text) {
         const res = parseEntityList(pairs, i, 'ENDSEC', warnings);
         entities = res.entities;
         i = res.next;
+      } else if (section === 'HEADER') {
+        while (i < pairs.length && !(pairs[i].code === 0 && pairs[i].value === 'ENDSEC')) {
+          if (pairs[i].code === 9 && pairs[i].value === '$INSUNITS') {
+            let j = i + 1;
+            while (j < pairs.length && pairs[j].code !== 9 && pairs[j].code !== 0) {
+              if (pairs[j].code === 70) {
+                insunits = parseInt(pairs[j].value, 10) || 0;
+                break;
+              }
+              j++;
+            }
+          }
+          i++;
+        }
       } else {
         // Skip section
         while (i < pairs.length && !(pairs[i].code === 0 && pairs[i].value === 'ENDSEC')) i++;
@@ -536,7 +676,7 @@ function parseDxf(text) {
   }
 
   // Expand INSERT entities using the parsed blocks.
-  const expanded = [];
+  let expanded = [];
   for (const e of entities) {
     if (e.type === 'INSERT') {
       expandInsert(e, blocks, expanded, warnings, 0);
@@ -544,6 +684,43 @@ function parseDxf(text) {
       expanded.push(e);
     }
   }
+
+  // Some exporters leave ENTITIES empty and put the drawing inside blocks
+  // (e.g. *Model_Space). Fall back to the block contents - but never when an
+  // INSERT was rejected (mirrored/non-uniform placement): recovering the raw
+  // block geometry would silently import it in the wrong orientation.
+  const insertRejected = warnings.some((w) => w.indexOf('INSERT') === 0);
+  if (expanded.length === 0 && !insertRejected && Object.keys(blocks).length > 0) {
+    for (const [name, block] of Object.entries(blocks)) {
+      if (/^\*p/i.test(name)) continue; // paper space
+      for (const e of block.entities) {
+        if (e.type === 'INSERT') {
+          expandInsert({ ...e, x: e.x - block.baseX, y: e.y - block.baseY }, blocks, expanded, warnings, 0);
+        } else {
+          expanded.push(translateEntity(cloneEntity(e), -block.baseX, -block.baseY));
+        }
+      }
+    }
+    if (expanded.length > 0) {
+      warnings.push('Geometrija učitana iz blokova (glavni popis entiteta bio je prazan).');
+    }
+  }
+
+  // POINT entities are marks, not cuts - they would only distort the part's
+  // bounding box (a stray point far from the contour inflates it hugely).
+  const pointCount = expanded.reduce((n, e) => n + (e.type === 'POINT' ? 1 : 0), 0);
+  if (pointCount > 0) {
+    warnings.push('Preskočeno ' + pointCount + ' POINT entiteta (točke se ne režu).');
+    expanded = expanded.filter((e) => e.type !== 'POINT');
+  }
+
+  // Convert to millimeters when the file declares other units.
+  const unitScale = UNIT_TO_MM[insunits] || 1;
+  if (unitScale !== 1 && expanded.length > 0) {
+    expanded = expanded.map((e) => transformEntity(e, { scale: unitScale }));
+    warnings.push('Mjere pretvorene u milimetre (×' + unitScale + ').');
+  }
+
   return { entities: expanded, warnings };
 }
 
@@ -1080,8 +1257,9 @@ function sampleSpline(e, quality = 1) {
 
   const validKnots = knots.length === ctrl.length + degree + 1 && ctrl.length > degree;
   if (!validKnots) {
-    // Fallback: fit points polyline, else control polygon.
-    if (e.fit && e.fit.length >= 2) return e.fit.map((p) => [p.x, p.y]);
+    // Fallback: smooth curve through the fit points, else control polygon.
+    if (e.fit && e.fit.length >= 3) return catmullRomPoints(e.fit, e.closed, quality);
+    if (e.fit && e.fit.length === 2) return e.fit.map((p) => [p.x, p.y]);
     return ctrl.map((p) => [p.x, p.y]);
   }
 
@@ -1094,6 +1272,42 @@ function sampleSpline(e, quality = 1) {
     pts.push(deBoor(degree, ctrl, knots, weights, t));
   }
   return pts;
+}
+
+/**
+ * Centripetal-ish Catmull-Rom spline through the given points - used for
+ * SPLINE entities that carry only fit points (no usable knot vector).
+ */
+function catmullRomPoints(pts, closed, quality = 1) {
+  const P = pts.map((p) => [p.x, p.y]);
+  if (P.length < 3) return P;
+  const per = Math.max(4, Math.round(8 * Math.max(0.25, quality)));
+  const segs = closed ? P.length : P.length - 1;
+  const get = (i) => {
+    if (closed) return P[((i % P.length) + P.length) % P.length];
+    return P[Math.min(P.length - 1, Math.max(0, i))];
+  };
+  const out = [];
+  for (let s = 0; s < segs; s++) {
+    const p0 = get(s - 1);
+    const p1 = get(s);
+    const p2 = get(s + 1);
+    const p3 = get(s + 2);
+    for (let k = (s === 0 ? 0 : 1); k <= per; k++) {
+      const t = k / per;
+      const t2 = t * t;
+      const t3 = t2 * t;
+      out.push([
+        0.5 * ((2 * p1[0]) + (-p0[0] + p2[0]) * t
+          + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2
+          + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3),
+        0.5 * ((2 * p1[1]) + (-p0[1] + p2[1]) * t
+          + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2
+          + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3),
+      ]);
+    }
+  }
+  return out;
 }
 
 function deBoor(degree, ctrl, knots, weights, t) {
@@ -1835,6 +2049,11 @@ function generateSheet(opts) {
       w: pl.w,
       h: pl.h,
       rotated: pl.rotated,
+      // Exact rigid transform (entity' = R(rotDeg)*entity + (dx,dy)) - enough
+      // to re-create the identical sheet DXF later without storing the file.
+      rotDeg,
+      dx,
+      dy,
       outline: or.rotated.map((poly) => decimate(
         poly.map(([x, y]) => [round3(x + dx), round3(y + dy)]),
         80,
@@ -1881,7 +2100,59 @@ function generateSheet(opts) {
   };
 }
 
-module.exports = { analyzePart, generateSheet };
+/**
+ * Re-create a sheet DXF from stored placements (the compact history record)
+ * without re-running the nesting. Produces byte-identical output to the
+ * original generateSheet call for the same parts.
+ *
+ * @param {object} opts
+ * @param {Array} opts.parts       library entries with `content` for every
+ *                                 part id used by the placements
+ * @param {Array} opts.placements  [{id, rotDeg, dx, dy}]
+ * @param {number} opts.sheetW, opts.sheetH
+ * @param {boolean} [opts.addFrame=false]
+ * @returns {string} DXF text
+ */
+function buildSheetDxf(opts) {
+  const { parts = [], placements = [], sheetW, sheetH, addFrame = false } = opts;
+  const cache = {};
+  const getEntities = (id) => {
+    if (!cache[id]) {
+      const p = parts.find((q) => q.id === id);
+      if (!p || typeof p.content !== 'string') {
+        throw new Error('Part iz ove ploče više ne postoji u biblioteci.');
+      }
+      cache[id] = parseDxf(p.content).entities;
+    }
+    return cache[id];
+  };
+
+  const outEntities = [];
+  for (const pl of placements) {
+    for (const e of getEntities(pl.id)) {
+      outEntities.push(transformEntity(e, { rotDeg: pl.rotDeg || 0, dx: pl.dx || 0, dy: pl.dy || 0 }));
+    }
+  }
+  if (addFrame) {
+    outEntities.push({
+      type: 'POLYLINE',
+      layer: 'PLOCA',
+      closed: true,
+      verts: [
+        { x: 0, y: 0, bulge: 0 },
+        { x: sheetW, y: 0, bulge: 0 },
+        { x: sheetW, y: sheetH, bulge: 0 },
+        { x: 0, y: sheetH, bulge: 0 },
+      ],
+    });
+  }
+  if (outEntities.length === 0) {
+    throw new Error('Ploča je prazna - nema ničega za zapisati.');
+  }
+  return writeDxf(outEntities);
+}
+
+module.exports = { analyzePart, generateSheet, buildSheetDxf };
 
 })(module);
 return module.exports; })();
@@ -1894,7 +2165,7 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
  * and SAMPLE_FILES/SAMPLE_CONFIG are provided by the bundle.
  */
 (function () {
-  const { analyzePart, generateSheet } = __req('parts');
+  const { analyzePart, buildSheetDxf, generateSheet } = __req('parts');
 
   // ---- storage (localStorage with in-memory fallback) ----
   const mem = {};
@@ -1916,7 +2187,7 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
   }
 
   const DEFAULT_SETTINGS = {
-    gap: 8, margin: 10, allowRotate: true, autoOpen: false,
+    gap: 8, margin: 10, histTol: 20, allowRotate: true, autoOpen: false,
     addFrame: false, scicutPath: '', outputDir: '',
   };
 
@@ -1944,6 +2215,7 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
       area: Math.round(info.area * 1000) / 1000,
       outline: info.outline,
       warnings: info.warnings,
+      entityCount: info.entityCount,
       createdAt: new Date().toISOString(),
       content,
     };
@@ -1975,6 +2247,29 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
   };
 
   function pad2(n) { return String(n).padStart(2, '0'); }
+
+  function getSettings() {
+    return { ...DEFAULT_SETTINGS, ...load('settings', {}) };
+  }
+
+  function findSheet(id) {
+    const entry = load('history', []).find((s) => s.id === id);
+    if (!entry) throw new Error('Ploča ne postoji u povijesti.');
+    return entry;
+  }
+
+  function sheetDxf(entry) {
+    if (!Array.isArray(entry.placements) || entry.placements.length === 0) {
+      throw new Error('Za ovu staru ploču nema zapisa - generirajte je ponovno.');
+    }
+    return buildSheetDxf({
+      parts: getLib(),
+      placements: entry.placements,
+      sheetW: entry.width,
+      sheetH: entry.height,
+      addFrame: !!entry.addFrame,
+    });
+  }
 
   // ---- file download (artifact capability, else plain browser save) ----
   async function download(name, text) {
@@ -2010,6 +2305,9 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
 
   // ---- the bridge ----
   window.dino = {
+    isWeb: true,
+    canDrag: false, // native drag-out works only in the desktop app
+
     listParts: async () => getLib().map(pub),
 
     addParts: async (files) => {
@@ -2056,15 +2354,15 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
       return true;
     },
 
-    getSettings: async () => ({ ...DEFAULT_SETTINGS, ...load('settings', {}) }),
+    getSettings: async () => getSettings(),
 
     setSettings: async (patch) => {
-      const s = { ...DEFAULT_SETTINGS, ...load('settings', {}) };
+      const s = getSettings();
       for (const k of Object.keys(DEFAULT_SETTINGS)) {
         if (patch && Object.prototype.hasOwnProperty.call(patch, k)) {
-          if (k === 'gap' || k === 'margin') {
+          if (k === 'gap' || k === 'margin' || k === 'histTol') {
             const n = Number(patch[k]);
-            s[k] = Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : s[k];
+            s[k] = Number.isFinite(n) ? Math.min(k === 'histTol' ? 500 : 100, Math.max(0, n)) : s[k];
           } else if (k === 'allowRotate' || k === 'autoOpen' || k === 'addFrame') {
             s[k] = !!patch[k];
           } else {
@@ -2085,7 +2383,7 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
       if (width > 100000 || height > 100000) {
         return { ok: false, message: 'Dimenzije ploče su prevelike.' };
       }
-      const settings = { ...DEFAULT_SETTINGS, ...load('settings', {}) };
+      const settings = getSettings();
       const active = getLib().filter((p) => p.enabled);
       if (active.length === 0) {
         return { ok: false, message: 'Nema uključenih partova. Dodajte ih u PRIPREMI.' };
@@ -2114,38 +2412,49 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
         };
       }
       const now = new Date();
+      const id = newId();
       const fileName = 'Ploca_' + Math.round(width) + 'x' + Math.round(height)
         + '_' + now.getFullYear() + '-' + pad2(now.getMonth() + 1) + '-' + pad2(now.getDate())
-        + '_' + pad2(now.getHours()) + '-' + pad2(now.getMinutes()) + '-' + pad2(now.getSeconds()) + '.dxf';
+        + '_' + pad2(now.getHours()) + '-' + pad2(now.getMinutes()) + '-' + pad2(now.getSeconds())
+        + '_' + id.slice(-4) + '.dxf';
 
-      let history = load('history', []);
-      history.unshift({
-        id: newId(),
+      const entry = {
+        id,
         date: now.toISOString(),
         width,
         height,
-        dxfPath: fileName,
         fileName,
-        dxf: result.dxf,
+        addFrame: !!settings.addFrame,
+        placements: result.placements.map((pl) => ({
+          id: pl.id,
+          x: Math.round(pl.x * 1000) / 1000,
+          y: Math.round(pl.y * 1000) / 1000,
+          w: Math.round(pl.w * 1000) / 1000,
+          h: Math.round(pl.h * 1000) / 1000,
+          rotated: pl.rotated,
+          rotDeg: pl.rotDeg,
+          dx: pl.dx,
+          dy: pl.dy,
+        })),
         summary: result.summary,
         unplaced: result.unplaced,
         utilization: Math.round(result.utilization * 1000) / 1000,
         totalPlaced: result.totalPlaced,
-      });
-      history = history.slice(0, 10);
-      // DXF text is bulky; keep it only on recent entries and degrade
-      // gracefully if the browser storage is full.
-      for (let i = 5; i < history.length; i++) delete history[i].dxf;
+        capped: result.capped,
+      };
+      let history = load('history', []);
+      history.unshift(entry);
+      history = history.slice(0, 60);
       if (!store('history', history)) {
-        for (let i = 1; i < history.length; i++) delete history[i].dxf;
+        history = history.slice(0, 10);
         store('history', history);
       }
 
       return {
         ok: true,
+        sheetId: id,
         width,
         height,
-        dxfPath: fileName,
         fileName,
         placements: result.placements,
         unplaced: result.unplaced,
@@ -2160,23 +2469,26 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
       };
     },
 
-    openFile: async (p) => {
-      const entry = load('history', []).find((s) => s.fileName === p || s.dxfPath === p);
-      if (!entry || !entry.dxf) {
-        return { ok: false, message: 'DXF ove ploče više nije spremljen u pregledniku - generirajte ponovno.' };
+    openSheet: async (id) => {
+      try {
+        const entry = findSheet(id);
+        return download(entry.fileName || 'Ploca.dxf', sheetDxf(entry));
+      } catch (e) {
+        return { ok: false, message: (e && e.message) || String(e) };
       }
-      return download(entry.fileName, entry.dxf);
     },
 
-    showInFolder: async () => true,
-    listHistory: async () => load('history', []).map(({ dxf, ...rest }) => rest),
+    saveSheet: async (id) => window.dino.openSheet(id),
+    dragSheet: () => {},
+
+    listHistory: async () => load('history', []),
     removeHistory: async (id) => {
       store('history', load('history', []).filter((s) => s.id !== id));
       return true;
     },
     pickExe: async () => null,
     pickDir: async () => null,
-    appInfo: async () => ({ version: '1.0.0 · web proba', dataDir: '', outputDir: '' }),
+    appInfo: async () => ({ version: '1.1.0 · web proba', dataDir: '' }),
   };
 })();
 
@@ -2188,12 +2500,16 @@ const $ = (id) => document.getElementById(id);
 
 const state = {
   parts: [],
+  partsById: {},
   settings: null,
   history: [],
-  lastResult: null,
+  lastGeneratedId: null,
+  selectedSheetId: null,
 };
 
 const bridge = window.dino;
+const IS_WEB = !!(bridge && bridge.isWeb);
+const CAN_DRAG = !!(bridge && bridge.canDrag);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -2214,29 +2530,17 @@ function fmtMm(n) {
   return String(Math.round(n * 10) / 10).replace('.', ',');
 }
 
-let toastTimer = null;
-function showToast(msg) {
-  const t = $('toast');
-  t.textContent = msg;
-  t.hidden = false;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { t.hidden = true; }, 6000);
-}
-
-async function openDxfPath(p) {
-  try {
-    const r = await bridge.openFile(p);
-    if (r && !r.ok) showToast(r.message || 'Otvaranje DXF-a nije uspjelo.');
-  } catch (e) {
-    showToast('Otvaranje DXF-a nije uspjelo: ' + (e && e.message ? e.message : e));
-  }
-}
-
 function fmtDate(iso) {
   const d = new Date(iso);
   const p = (x) => String(x).padStart(2, '0');
   return p(d.getDate()) + '.' + p(d.getMonth() + 1) + '.' + d.getFullYear()
     + '. ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+
+function fmtDateShort(iso) {
+  const d = new Date(iso);
+  const p = (x) => String(x).padStart(2, '0');
+  return p(d.getDate()) + '.' + p(d.getMonth() + 1) + '. ' + p(d.getHours()) + ':' + p(d.getMinutes());
 }
 
 function colorFor(id) {
@@ -2251,6 +2555,15 @@ function el(tag, cls, text) {
   if (cls) e.className = cls;
   if (text !== undefined) e.textContent = text;
   return e;
+}
+
+let toastTimer = null;
+function showToast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.hidden = true; }, 6000);
 }
 
 // ---------------------------------------------------------------------------
@@ -2269,7 +2582,77 @@ $('tabStroj').addEventListener('click', () => showView('stroj'));
 $('tabPriprema').addEventListener('click', () => showView('priprema'));
 
 // ---------------------------------------------------------------------------
-// Machine view
+// Sheet drawing (from compact placements + the part library outlines)
+// ---------------------------------------------------------------------------
+
+function placementPolys(pl) {
+  const part = state.partsById[pl.id];
+  if (!part || !part.outline) return null;
+  const polys = [];
+  for (const poly of part.outline) {
+    const out = [];
+    for (const [px, py] of poly) {
+      // Library outline is normalized to [0..w]x[0..h]; a rotated placement
+      // turns the part 90 degrees CCW: (px,py) -> (h-py, px).
+      const x = pl.rotated ? (part.h - py) : px;
+      const y = pl.rotated ? px : py;
+      out.push([x + pl.x, y + pl.y]);
+    }
+    polys.push(out);
+  }
+  return polys;
+}
+
+function drawSheetEntry(canvas, entry) {
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width;
+  const H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const pad = Math.max(8, Math.round(W * 0.02));
+  const scale = Math.min((W - 2 * pad) / entry.width, (H - 2 * pad) / entry.height);
+  const ox = (W - entry.width * scale) / 2;
+  const oy = (H - entry.height * scale) / 2;
+  const tx = (x) => ox + x * scale;
+  const ty = (y) => H - oy - y * scale; // flip Y (DXF Y is up)
+
+  ctx.fillStyle = '#242c37';
+  ctx.strokeStyle = '#5b6b7f';
+  ctx.lineWidth = Math.max(1, W / 700);
+  ctx.fillRect(tx(0), ty(entry.height), entry.width * scale, entry.height * scale);
+  ctx.strokeRect(tx(0), ty(entry.height), entry.width * scale, entry.height * scale);
+
+  if (!Array.isArray(entry.placements) || entry.placements.length === 0) {
+    ctx.fillStyle = '#8b98a8';
+    ctx.font = Math.round(W / 30) + 'px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('stara ploča — samo datoteka', W / 2, H / 2);
+    return;
+  }
+
+  for (const pl of entry.placements) {
+    const polys = placementPolys(pl);
+    ctx.strokeStyle = colorFor(pl.id);
+    ctx.lineWidth = Math.max(1, W / 900);
+    if (!polys) {
+      // Part was deleted from the library - show its box as a dashed ghost.
+      ctx.setLineDash([4, 3]);
+      ctx.strokeRect(tx(pl.x), ty(pl.y + pl.h), pl.w * scale, pl.h * scale);
+      ctx.setLineDash([]);
+      continue;
+    }
+    for (const poly of polys) {
+      if (poly.length < 2) continue;
+      ctx.beginPath();
+      ctx.moveTo(tx(poly[0][0]), ty(poly[0][1]));
+      for (let i = 1; i < poly.length; i++) ctx.lineTo(tx(poly[i][0]), ty(poly[i][1]));
+      ctx.stroke();
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Machine view: generate + offers
 // ---------------------------------------------------------------------------
 
 async function generate() {
@@ -2277,7 +2660,7 @@ async function generate() {
   const width = parseNum($('inWidth').value);
   const height = parseNum($('inHeight').value);
   const status = $('genStatus');
-  $('result').hidden = true;
+  $('genWarn').hidden = true;
   status.hidden = false;
   status.className = 'status';
 
@@ -2297,11 +2680,23 @@ async function generate() {
       status.textContent = res.message || 'Generiranje nije uspjelo.';
       return;
     }
-    state.lastResult = res;
     status.hidden = true;
-    renderResult(res);
+    state.lastGeneratedId = res.sheetId;
     await refreshHistory();
-    renderPrevSheets();
+    renderOffers();
+    selectSheet(res.sheetId);
+
+    const msgs = [];
+    if (res.unplaced && res.unplaced.length > 0) {
+      msgs.push('NIJE STALO: ' + res.unplaced.map((u) => u.name + ' ×' + u.count).join(', '));
+    }
+    if (res.capped) {
+      msgs.push('Dosegnut je sigurnosni limit od ' + (res.maxTotal || '') + ' komada — ploča možda nije potpuno popunjena.');
+    }
+    if (res.openMessage) msgs.push(res.openMessage);
+    $('genWarn').textContent = msgs.join('  ·  ');
+    $('genWarn').hidden = msgs.length === 0;
+    if (res.opened) showToast('Otvoreno u CypCut-u: ' + res.fileName);
   } catch (e) {
     status.classList.add('err');
     status.textContent = 'Greška: ' + (e && e.message ? e.message : e);
@@ -2310,108 +2705,121 @@ async function generate() {
   }
 }
 
-function renderResult(res) {
-  $('result').hidden = false;
-  drawSheet($('preview'), res);
-
-  const stats = $('stats');
-  stats.innerHTML = '';
-  const line1 = el('div', 'big',
-    res.totalPlaced + ' kom · iskoristivost ' + Math.round(res.utilization * 100) + '%'
-    + ' · ' + (res.elapsedMs < 1000 ? res.elapsedMs + ' ms' : (res.elapsedMs / 1000).toFixed(1) + ' s'));
-  stats.appendChild(line1);
-  const parts = res.summary.map((s) => s.name + ' ×' + s.count).join('  ·  ');
-  stats.appendChild(el('div', '', parts));
-  const fileLine = el('div', 'files', res.dxfPath);
-  stats.appendChild(fileLine);
-
-  const warn = $('unplacedWarn');
-  const msgs = [];
-  if (res.unplaced && res.unplaced.length > 0) {
-    msgs.push('NIJE STALO: ' + res.unplaced.map((u) => u.name + ' ×' + u.count).join(', '));
-  }
-  if (res.capped) {
-    msgs.push('Dosegnut je sigurnosni limit od ' + (res.maxTotal || '') + ' komada — ploča možda nije potpuno popunjena.');
-  }
-  if (res.openMessage) {
-    msgs.push(res.openMessage);
-  }
-  warn.textContent = msgs.join('  ·  ');
-  warn.hidden = msgs.length === 0;
+function dimsMatch(entry, w, h, tol) {
+  const close = (a, b) => Math.abs(a - b) <= tol;
+  return (close(entry.width, w) && close(entry.height, h))
+    || (close(entry.width, h) && close(entry.height, w));
 }
 
-function drawSheet(canvas, res) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width;
-  const H = canvas.height;
-  ctx.clearRect(0, 0, W, H);
-
-  const pad = 20;
-  const scale = Math.min((W - 2 * pad) / res.width, (H - 2 * pad) / res.height);
-  const ox = (W - res.width * scale) / 2;
-  const oy = (H - res.height * scale) / 2;
-  const tx = (x) => ox + x * scale;
-  const ty = (y) => H - oy - y * scale; // flip Y (DXF Y is up)
-
-  // Sheet
-  ctx.fillStyle = '#242c37';
-  ctx.strokeStyle = '#5b6b7f';
-  ctx.lineWidth = 2;
-  ctx.fillRect(tx(0), ty(res.height), res.width * scale, res.height * scale);
-  ctx.strokeRect(tx(0), ty(res.height), res.width * scale, res.height * scale);
-
-  // Parts
-  for (const pl of res.placements) {
-    const color = colorFor(pl.id);
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1.5;
-    for (const poly of pl.outline) {
-      if (poly.length < 2) continue;
-      ctx.beginPath();
-      ctx.moveTo(tx(poly[0][0]), ty(poly[0][1]));
-      for (let i = 1; i < poly.length; i++) ctx.lineTo(tx(poly[i][0]), ty(poly[i][1]));
-      ctx.stroke();
-    }
-  }
-
-  // Dimension labels
-  ctx.fillStyle = '#8b98a8';
-  ctx.font = '13px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText(fmtMm(res.width) + ' mm', W / 2, ty(0) + 16);
-  ctx.save();
-  ctx.translate(tx(0) - 8, H / 2);
-  ctx.rotate(-Math.PI / 2);
-  ctx.fillText(fmtMm(res.height) + ' mm', 0, 0);
-  ctx.restore();
-}
-
-function renderPrevSheets() {
-  const box = $('prevSheets');
+function currentMatches() {
   const width = parseNum($('inWidth').value);
   const height = parseNum($('inHeight').value);
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-    box.hidden = true;
-    return;
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
+  const tol = (state.settings && Number.isFinite(state.settings.histTol)) ? state.settings.histTol : 20;
+  const matches = state.history.filter((s) => dimsMatch(s, width, height, tol));
+  matches.sort((a, b) => {
+    if (a.id === state.lastGeneratedId) return -1;
+    if (b.id === state.lastGeneratedId) return 1;
+    return new Date(b.date) - new Date(a.date);
+  });
+  return { width, height, tol, matches };
+}
+
+function sheetCard(entry) {
+  const card = el('div', 'sheet-card');
+  card.dataset.id = entry.id;
+  if (entry.id === state.selectedSheetId) card.classList.add('selected');
+
+  if (entry.id === state.lastGeneratedId) {
+    card.appendChild(el('div', 'badge', 'NOVA'));
   }
-  const tol = 0.5;
-  const matches = state.history.filter((s) => Math.abs(s.width - width) < tol && Math.abs(s.height - height) < tol);
-  if (matches.length === 0) {
+
+  const cv = document.createElement('canvas');
+  cv.width = 400;
+  cv.height = 210;
+  drawSheetEntry(cv, entry);
+  card.appendChild(cv);
+
+  card.appendChild(el('div', 'sc-line1', fmtMm(entry.width) + ' × ' + fmtMm(entry.height) + ' mm'));
+  card.appendChild(el('div', 'sc-line2',
+    entry.totalPlaced + ' kom · ' + Math.round((entry.utilization || 0) * 100) + '% · ' + fmtDateShort(entry.date)
+    + (Array.isArray(entry.placements) && entry.placements.length ? '' : ' · stara datoteka')));
+
+  card.addEventListener('click', () => selectSheet(entry.id));
+  card.addEventListener('dblclick', () => openSheetFeedback(entry.id));
+  if (CAN_DRAG) {
+    card.draggable = true;
+    card.addEventListener('dragstart', (e) => {
+      e.preventDefault();
+      bridge.dragSheet(entry.id);
+    });
+  }
+  return card;
+}
+
+function renderOffers() {
+  const box = $('offers');
+  const cur = currentMatches();
+  if (!cur || cur.matches.length === 0) {
     box.hidden = true;
+    if (state.selectedSheetId) {
+      state.selectedSheetId = null;
+      $('result').hidden = true;
+    }
     return;
   }
   box.hidden = false;
-  box.innerHTML = '';
-  box.appendChild(el('div', '', 'Za ' + fmtMm(width) + ' × ' + fmtMm(height)
-    + ' mm već postoji ' + matches.length + ' generirana ploča:'));
-  const row = el('div', 'row');
-  for (const m of matches.slice(0, 4)) {
-    const b = el('button', 'btn small ghost',
-      fmtDate(m.date) + ' · ' + m.totalPlaced + ' kom · OTVORI');
-    b.addEventListener('click', () => openDxfPath(m.dxfPath));
-    row.appendChild(b);
+  $('offersTitle').textContent = 'Ploče ~ ' + fmtMm(cur.width) + ' × ' + fmtMm(cur.height)
+    + ' mm (±' + fmtMm(cur.tol) + ' mm) — ' + cur.matches.length + ' kom';
+  const wrap = $('offerCards');
+  wrap.innerHTML = '';
+  for (const m of cur.matches.slice(0, 12)) wrap.appendChild(sheetCard(m));
+  $('dragHint').hidden = !CAN_DRAG;
+
+  if (state.selectedSheetId && !cur.matches.some((m) => m.id === state.selectedSheetId)) {
+    state.selectedSheetId = null;
+    $('result').hidden = true;
   }
-  box.appendChild(row);
+}
+
+function selectSheet(id) {
+  const entry = state.history.find((s) => s.id === id);
+  if (!entry) return;
+  state.selectedSheetId = id;
+  for (const c of document.querySelectorAll('.sheet-card')) {
+    c.classList.toggle('selected', c.dataset.id === id);
+  }
+  $('result').hidden = false;
+  drawSheetEntry($('preview'), entry);
+
+  const stats = $('stats');
+  stats.innerHTML = '';
+  stats.appendChild(el('div', 'big',
+    fmtMm(entry.width) + ' × ' + fmtMm(entry.height) + ' mm · ' + entry.totalPlaced + ' kom · '
+    + Math.round((entry.utilization || 0) * 100) + '%'));
+  if (Array.isArray(entry.summary) && entry.summary.length) {
+    stats.appendChild(el('div', '', entry.summary.map((s) => s.name + ' ×' + s.count).join('  ·  ')));
+  }
+  stats.appendChild(el('div', 'files', (entry.fileName || '') + ' · ' + fmtDate(entry.date)));
+}
+
+async function openSheetFeedback(id) {
+  try {
+    const r = await bridge.openSheet(id);
+    if (r && !r.ok && !r.canceled) showToast(r.message || 'Otvaranje nije uspjelo.');
+  } catch (e) {
+    showToast('Otvaranje nije uspjelo: ' + (e && e.message ? e.message : e));
+  }
+}
+
+async function saveSheetFeedback(id) {
+  try {
+    const r = await bridge.saveSheet(id);
+    if (r && r.ok && r.path) showToast('Spremljeno: ' + r.path);
+    else if (r && !r.ok && !r.canceled) showToast(r.message || 'Spremanje nije uspjelo.');
+  } catch (e) {
+    showToast('Spremanje nije uspjelo: ' + (e && e.message ? e.message : e));
+  }
 }
 
 $('btnGenerate').addEventListener('click', generate);
@@ -2419,23 +2827,26 @@ for (const id of ['inWidth', 'inHeight']) {
   $(id).addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.repeat) generate();
   });
-  $(id).addEventListener('input', renderPrevSheets);
+  $(id).addEventListener('input', renderOffers);
 }
 $('btnOpen').addEventListener('click', () => {
-  if (state.lastResult) openDxfPath(state.lastResult.dxfPath);
+  if (state.selectedSheetId) openSheetFeedback(state.selectedSheetId);
+});
+$('btnSave').addEventListener('click', () => {
+  if (state.selectedSheetId) saveSheetFeedback(state.selectedSheetId);
 });
 
 // ---------------------------------------------------------------------------
 // Parts (prep view)
 // ---------------------------------------------------------------------------
 
-function drawThumb(canvas, part) {
+function drawOutline(canvas, part, padPx) {
   const ctx = canvas.getContext('2d');
   const W = canvas.width;
   const H = canvas.height;
   ctx.clearRect(0, 0, W, H);
   if (!part.outline || part.w <= 0 || part.h <= 0) return;
-  const pad = 6;
+  const pad = padPx || 6;
   const scale = Math.min((W - 2 * pad) / part.w, (H - 2 * pad) / part.h);
   const ox = (W - part.w * scale) / 2;
   const oy = (H - part.h * scale) / 2;
@@ -2451,6 +2862,25 @@ function drawThumb(canvas, part) {
     ctx.stroke();
   }
 }
+
+function showPartModal(part) {
+  $('modalTitle').textContent = part.name;
+  drawOutline($('modalCanvas'), part, 20);
+  const info = [];
+  info.push('Dimenzije: ' + fmtMm(part.w) + ' × ' + fmtMm(part.h) + ' mm · površina ' + (part.area / 100).toFixed(1) + ' cm²');
+  if (part.entityCount) info.push('Učitano entiteta: ' + part.entityCount);
+  if (part.warnings && part.warnings.length) {
+    info.push('Upozorenja pri uvozu:\n  – ' + part.warnings.join('\n  – '));
+  }
+  info.push('Ako oblik NE izgleda kao tvoj crtež, javi — pošalji taj DXF da popravimo uvoz.');
+  $('modalInfo').textContent = info.join('\n');
+  $('partModal').hidden = false;
+}
+
+$('modalClose').addEventListener('click', () => { $('partModal').hidden = true; });
+$('partModal').addEventListener('click', (e) => {
+  if (e.target === $('partModal')) $('partModal').hidden = true;
+});
 
 function renderParts() {
   const list = $('partsList');
@@ -2471,9 +2901,11 @@ function partRow(part) {
 
   const thumb = document.createElement('canvas');
   thumb.className = 'part-thumb';
-  thumb.width = 96;
-  thumb.height = 72;
-  drawThumb(thumb, part);
+  thumb.width = 84;
+  thumb.height = 62;
+  thumb.title = 'Klikni za veliki pregled';
+  drawOutline(thumb, part);
+  thumb.addEventListener('click', () => showPartModal(part));
   row.appendChild(thumb);
 
   const main = el('div', 'part-main');
@@ -2482,9 +2914,15 @@ function partRow(part) {
   nameInput.title = 'Naziv parta';
   nameInput.addEventListener('change', () => update(part.id, { name: nameInput.value }));
   main.appendChild(nameInput);
-  main.appendChild(el('div', 'part-dims',
-    fmtMm(part.w) + ' × ' + fmtMm(part.h) + ' mm'
-    + (part.warnings && part.warnings.length ? ' · ⚠ ' + part.warnings.length + ' upozorenja' : '')));
+  const dims = el('div', 'part-dims');
+  dims.appendChild(document.createTextNode(fmtMm(part.w) + ' × ' + fmtMm(part.h) + ' mm · ' + (part.area / 100).toFixed(1) + ' cm²'));
+  if (part.warnings && part.warnings.length) {
+    dims.appendChild(document.createTextNode(' · '));
+    const wlink = el('span', 'link', '⚠ ' + part.warnings.length + ' upozorenja');
+    wlink.addEventListener('click', () => showPartModal(part));
+    dims.appendChild(wlink);
+  }
+  main.appendChild(dims);
   row.appendChild(main);
 
   // Priority
@@ -2517,7 +2955,7 @@ function partRow(part) {
   // Count / maxCount
   const cnt = el('label', 'part-field');
   const isFiller = part.mode === 'filler';
-  cnt.appendChild(el('span', '', isFiller ? 'Maks. kom (0 = koliko stane)' : 'Broj komada'));
+  cnt.appendChild(el('span', '', isFiller ? 'Maks. (0 = koliko stane)' : 'Broj komada'));
   const cntIn = document.createElement('input');
   cntIn.type = 'number';
   cntIn.min = '0';
@@ -2535,9 +2973,6 @@ function partRow(part) {
   en.appendChild(enIn);
   en.appendChild(el('span', '', 'Uključen'));
   row.appendChild(en);
-
-  // Area info
-  row.appendChild(el('div', 'part-dims', (part.area / 100).toFixed(1) + ' cm²'));
 
   // Delete
   const del = el('button', 'btn small danger', '✕');
@@ -2558,6 +2993,8 @@ async function update(id, patch) {
 
 async function refreshParts() {
   state.parts = await bridge.listParts();
+  state.partsById = {};
+  for (const p of state.parts) state.partsById[p.id] = p;
   renderParts();
 }
 
@@ -2578,6 +3015,9 @@ async function importFiles(fileList) {
     errBox.hidden = true;
   }
   await refreshParts();
+  // A fresh import usually deserves a look - open the inspector for the
+  // first added part so mistakes are caught before nesting.
+  if (res.added && res.added.length === 1) showPartModal(res.added[0]);
 }
 
 $('btnPickFiles').addEventListener('click', () => $('fileInput').click());
@@ -2610,7 +3050,9 @@ function renderSettings() {
   const s = state.settings;
   $('setGap').value = String(s.gap).replace('.', ',');
   $('setMargin').value = String(s.margin).replace('.', ',');
+  $('setHistTol').value = String(s.histTol).replace('.', ',');
   $('setRotate').checked = !!s.allowRotate;
+  $('setAutoOpen').checked = !!s.autoOpen;
   $('setFrame').checked = !!s.addFrame;
   $('setScicut').value = s.scicutPath || '';
   $('setOutput').value = s.outputDir || '';
@@ -2619,19 +3061,21 @@ function renderSettings() {
 async function saveSettings(patch) {
   state.settings = await bridge.setSettings(patch);
   renderSettings();
+  renderOffers(); // tolerance may have changed
 }
 
-$('setGap').addEventListener('change', () => {
-  const n = parseNum($('setGap').value);
-  if (Number.isFinite(n)) saveSettings({ gap: n });
-  else renderSettings();
-});
-$('setMargin').addEventListener('change', () => {
-  const n = parseNum($('setMargin').value);
-  if (Number.isFinite(n)) saveSettings({ margin: n });
-  else renderSettings();
-});
+function numSetting(id, key) {
+  $(id).addEventListener('change', () => {
+    const n = parseNum($(id).value);
+    if (Number.isFinite(n)) saveSettings({ [key]: n });
+    else renderSettings();
+  });
+}
+numSetting('setGap', 'gap');
+numSetting('setMargin', 'margin');
+numSetting('setHistTol', 'histTol');
 $('setRotate').addEventListener('change', () => saveSettings({ allowRotate: $('setRotate').checked }));
+$('setAutoOpen').addEventListener('change', () => saveSettings({ autoOpen: $('setAutoOpen').checked }));
 $('setFrame').addEventListener('change', () => saveSettings({ addFrame: $('setFrame').checked }));
 $('setScicut').addEventListener('change', () => saveSettings({ scicutPath: $('setScicut').value }));
 $('setOutput').addEventListener('change', () => saveSettings({ outputDir: $('setOutput').value }));
@@ -2655,22 +3099,28 @@ function renderHistory() {
     list.appendChild(el('div', 'empty', 'Još nema generiranih ploča.'));
     return;
   }
-  for (const s of state.history.slice(0, 50)) {
+  for (const s of state.history.slice(0, 60)) {
     const row = el('div', 'history-row');
-    row.appendChild(el('div', '', fmtDate(s.date)));
+    row.appendChild(el('div', 'hdate', fmtDate(s.date)));
     row.appendChild(el('div', 'hdims', fmtMm(s.width) + ' × ' + fmtMm(s.height) + ' mm'));
     row.appendChild(el('div', 'hsum',
-      s.totalPlaced + ' kom · ' + (s.summary || []).map((x) => x.name + '×' + x.count).join(', ')));
-    row.appendChild(el('div', '', Math.round((s.utilization || 0) * 100) + '%'));
+      s.totalPlaced + ' kom · ' + Math.round((s.utilization || 0) * 100) + '% · '
+      + (s.summary || []).map((x) => x.name + '×' + x.count).join(', ')));
     const btns = el('div', 'hbtns');
-    const open = el('button', 'btn small', 'OTVORI');
-    open.addEventListener('click', () => openDxfPath(s.dxfPath));
+    const open = el('button', 'btn small', IS_WEB ? 'PREUZMI' : 'OTVORI');
+    open.addEventListener('click', () => openSheetFeedback(s.id));
+    btns.appendChild(open);
+    if (!IS_WEB) {
+      const save = el('button', 'btn small ghost', 'SPREMI');
+      save.addEventListener('click', () => saveSheetFeedback(s.id));
+      btns.appendChild(save);
+    }
     const del = el('button', 'btn small danger', '✕');
     del.addEventListener('click', async () => {
       await bridge.removeHistory(s.id);
       await refreshHistory();
+      renderOffers();
     });
-    btns.appendChild(open);
     btns.appendChild(del);
     row.appendChild(btns);
     list.appendChild(row);
@@ -2691,10 +3141,19 @@ async function init() {
     $('noBridge').hidden = false;
     return;
   }
+  if (IS_WEB) {
+    $('rowScicut').hidden = true;
+    $('rowOutput').hidden = true;
+    $('rowAutoOpen').hidden = true;
+    $('btnOpen').textContent = '💾 PREUZMI DXF';
+    $('btnSave').hidden = true;
+  }
+  if (typeof bridge.onToast === 'function') bridge.onToast(showToast);
   state.settings = await bridge.getSettings();
   renderSettings();
   await refreshParts();
   await refreshHistory();
+  renderOffers();
   try {
     const info = await bridge.appInfo();
     $('appVersion').textContent = 'v' + info.version;

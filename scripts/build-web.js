@@ -52,46 +52,19 @@ const samplesJs = 'const SAMPLE_FILES = ' + JSON.stringify(sampleFiles) + ';\n'
   + 'const SAMPLE_CONFIG = ' + JSON.stringify(sampleConfig) + ';';
 
 // ---- renderer: HTML body ----
+// Web-vs-desktop differences live in app.js behind the bridge's isWeb flag,
+// so only two build-time patches remain.
 let html = read('src/renderer/index.html');
 html = html.slice(html.indexOf('<body>') + '<body>'.length, html.indexOf('</body>'));
 html = patch(html, '  <script src="app.js"></script>\n', '', 'drop script tag');
-html = patch(html,
-  '<button id="btnOpen" class="btn">OTVORI DXF</button>',
-  '<button id="btnOpen" class="btn">💾 PREUZMI DXF</button>',
-  'download button');
-html = patch(html,
-  '\n          <button id="btnFolder" class="btn ghost">PRIKAŽI U MAPI</button>', '',
-  'drop folder button');
-html = patch(html,
-  '\n          <label class="check"><input id="setAutoOpen" type="checkbox"> Nakon generiranja odmah otvori DXF (SciCut)</label>', '',
-  'drop autoOpen setting');
-html = patch(html, '<label>SciCut program (.exe)', '<label hidden>SciCut program (.exe)', 'hide scicut path');
-html = patch(html, '<label>Mapa za spremanje DXF ploča', '<label hidden>Mapa za spremanje DXF ploča', 'hide output dir');
 html = patch(html, '</header>',
   '</header>\n  <div class="demo-note">Probna verzija u pregledniku — sve radi lokalno, ništa se ne šalje nikamo. '
-  + 'Pravi program za Windows (s otvaranjem u SciCut-u): '
-  + '<a href="https://github.com/zube23/Dino/releases/tag/v1.0.0" target="_blank" rel="noopener">preuzmi DinoNest</a>.</div>',
+  + 'Pravi program za Windows (s drag &amp; drop u CypCut): '
+  + '<a href="https://github.com/zube23/Dino/releases" target="_blank" rel="noopener">preuzmi DinoNest</a>.</div>',
   'demo note');
 
-// ---- renderer: app.js patched for the web bridge ----
-let app = read('src/renderer/app.js');
-app = patch(app,
-  "$('btnFolder').addEventListener('click', () => {\n"
-  + '  if (state.lastResult) bridge.showInFolder(state.lastResult.dxfPath);\n'
-  + '});\n', '', 'drop btnFolder listener');
-app = patch(app,
-  "$('setAutoOpen').addEventListener('change', () => saveSettings({ autoOpen: $('setAutoOpen').checked }));\n",
-  '', 'drop autoOpen listener');
-app = patch(app, "  $('setAutoOpen').checked = !!s.autoOpen;\n", '', 'drop autoOpen render');
-app = patch(app,
-  "    const folder = el('button', 'btn small ghost', 'MAPA');\n"
-  + "    folder.addEventListener('click', () => bridge.showInFolder(s.dxfPath));\n",
-  '', 'drop history MAPA button');
-app = patch(app, '    btns.appendChild(folder);\n', '', 'drop MAPA append');
-app = patch(app,
-  "const fileLine = el('div', 'files', res.dxfPath + (res.opened ? '  →  otvoreno' : ''));",
-  "const fileLine = el('div', 'files', res.dxfPath);",
-  'file line');
+// ---- renderer: app.js runs unchanged against the web bridge ----
+const app = read('src/renderer/app.js');
 
 // ---- styles ----
 const css = read('src/renderer/styles.css') + `

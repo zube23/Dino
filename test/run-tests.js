@@ -790,6 +790,27 @@ function rectsOverlap(a, b) {
 }
 
 // ---------------------------------------------------------------------------
+// Wild real-world DXF dialects (test/wild-fixtures.js)
+// ---------------------------------------------------------------------------
+
+{
+  const { fixtures } = require('./wild-fixtures');
+  for (const fx of fixtures) {
+    try {
+      const info = analyzePart(fx.content);
+      const dims = [info.w, info.h].sort((a, b) => a - b);
+      const want = [fx.expect.w, fx.expect.h].sort((a, b) => a - b);
+      check('wild ' + fx.name + ': dims',
+        approx(dims[0], want[0], fx.expect.tol) && approx(dims[1], want[1], fx.expect.tol),
+        'got ' + dims.map((d) => d.toFixed(2)).join('x') + ' want ' + want.join('x'));
+      check('wild ' + fx.name + ': outline present', info.outline.length > 0);
+    } catch (e) {
+      check('wild ' + fx.name + ': imports', false, e.message);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Performance smoke test - "instant" requirement
 // ---------------------------------------------------------------------------
 

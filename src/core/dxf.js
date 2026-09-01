@@ -157,6 +157,21 @@ function parseDxf(text) {
     }
   }
 
+  // HATCH fills: use their boundary contours only when the file carries no
+  // other cut geometry (otherwise they would duplicate existing lines and
+  // the laser would cut everything twice).
+  const hatches = expanded.filter((e) => e.type === 'HATCH');
+  expanded = expanded.filter((e) => e.type !== 'HATCH');
+  if (hatches.length > 0) {
+    const boundaries = hatches.flatMap((h) => h.boundaries || []);
+    if (expanded.length === 0 && boundaries.length > 0) {
+      expanded = boundaries;
+      warnings.push('Kontura reza preuzeta iz HATCH ispune (u datoteci nema drugih linija).');
+    } else {
+      warnings.push('HATCH ispuna preskočena (kontura reza već postoji u datoteci).');
+    }
+  }
+
   // POINT entities are marks, not cuts - they would only distort the part's
   // bounding box (a stray point far from the contour inflates it hugely).
   const pointCount = expanded.reduce((n, e) => n + (e.type === 'POINT' ? 1 : 0), 0);
@@ -230,10 +245,122 @@ function parseEntityList(pairs, i, endMarker, warnings) {
 }
 
 const SKIPPED_TYPES = new Set([
-  'TEXT', 'MTEXT', 'DIMENSION', 'HATCH', 'SOLID', 'ATTRIB', 'ATTDEF',
+  'TEXT', 'MTEXT', 'DIMENSION', 'SOLID', 'ATTRIB', 'ATTDEF',
   'LEADER', 'MLEADER', 'WIPEOUT', 'IMAGE', 'VIEWPORT', 'XLINE', 'RAY',
   '3DFACE', 'REGION', 'BODY', 'TRACE', 'TOLERANCE', 'OLE2FRAME', 'ACAD_PROXY_ENTITY',
 ]);
+
+/**
+ * Parse a HATCH entity's boundary loops into normalized entities. Some
+ * converters export cut contours only as hatches, so the boundary geometry
+ * is worth recovering (used only when a file has no other cut geometry).
+ * Codes are consumed in file order; seed points after the loops are ignored.
+ */
+function parseHatch(codes, layer, warnings) {
+  const out = [];
+  let i = 0;
+  while (i < codes.length && codes[i].code !== 91) i++;
+  if (i >= codes.length) return out;
+  const nLoops = parseInt(codes[i].value, 10) || 0;
+  i++;
+  for (let L = 0; L < nLoops && i < codes.length; L++) {
+    while (i < codes.length && codes[i].code !== 92) i++;
+    if (i >= codes.length) break;
+    const flags = parseInt(codes[i].value, 10) || 0;
+    i++;
+    if (flags & 2) {
+      // Polyline boundary: 72 hasBulge, 73 closed, 93 vertex count, vertices.
+      let closed = 1;
+      while (i < codes.length && codes[i].code !== 93) {
+        if (codes[i].code === 73) closed = parseInt(codes[i].value, 10) || 0;
+        i++;
+      }
+      if (i >= codes.length) break;
+      const nv = parseInt(codes[i].value, 10) || 0;
+      i++;
+      const verts = [];
+      for (let k = 0; k < nv && i < codes.length; k++) {
+        let x = 0;
+        let y = 0;
+        let b = 0;
+        if (codes[i] && codes[i].code === 10) { x = num(codes[i].value); i++; }
+        if (codes[i] && codes[i].code === 20) { y = num(codes[i].value); i++; }
+        if (codes[i] && codes[i].code === 42) { b = num(codes[i].value); i++; }
+        verts.push({ x, y, bulge: b });
+      }
+      if (verts.length >= 2) out.push({ type: 'POLYLINE', layer, closed: closed !== 0, verts });
+    } else {
+      // Edge list: 93 edge count, each edge starts with 72 = type.
+      while (i < codes.length && codes[i].code !== 93) i++;
+      if (i >= codes.length) break;
+      const ne = parseInt(codes[i].value, 10) || 0;
+      i++;
+      for (let k = 0; k < ne && i < codes.length; k++) {
+        while (i < codes.length && codes[i].code !== 72) i++;
+        if (i >= codes.length) break;
+        const et = parseInt(codes[i].value, 10) || 0;
+        i++;
+        const grab = (code, dflt) => {
+          if (codes[i] && codes[i].code === code) return num(codes[i++].value);
+          return dflt;
+        };
+        if (et === 1) {
+          const x1 = grab(10, 0);
+          const y1 = grab(20, 0);
+          const x2 = grab(11, 0);
+          const y2 = grab(21, 0);
+          out.push({ type: 'LINE', layer, x1, y1, x2, y2 });
+        } else if (et === 2) {
+          const cx = grab(10, 0);
+          const cy = grab(20, 0);
+          const r = grab(40, 0);
+          const a1 = grab(50, 0);
+          const a2 = grab(51, 360);
+          const ccw = grab(73, 1);
+          out.push(ccw === 0
+            ? { type: 'ARC', layer, cx, cy, r, a1: norm360(360 - a2), a2: norm360(360 - a1) }
+            : { type: 'ARC', layer, cx, cy, r, a1, a2 });
+        } else if (et === 3) {
+          const cx = grab(10, 0);
+          const cy = grab(20, 0);
+          const mx = grab(11, 0);
+          const my = grab(21, 0);
+          const ratio = grab(40, 1);
+          const a1 = grab(50, 0);
+          const a2 = grab(51, 360);
+          const ccw = grab(73, 1);
+          const t1 = (ccw === 0 ? 360 - a2 : a1) * DEG;
+          const t2 = (ccw === 0 ? 360 - a1 : a2) * DEG;
+          out.push({ type: 'ELLIPSE', layer, cx, cy, mx, my, ratio, t1, t2 });
+        } else if (et === 4) {
+          // Spline edge: consume declared counts, approximate via ctrl points.
+          const degree = grab(94, 3);
+          grab(73, 0); // rational
+          grab(74, 0); // periodic
+          const nKnots = grab(95, 0);
+          const nCtrl = grab(96, 0);
+          for (let q = 0; q < nKnots; q++) grab(40, 0);
+          const verts = [];
+          for (let q = 0; q < nCtrl; q++) {
+            const x = grab(10, 0);
+            const y = grab(20, 0);
+            grab(42, 1); // weight
+            verts.push({ x, y, bulge: 0 });
+          }
+          const nFit = grab(97, 0);
+          for (let q = 0; q < nFit; q++) { grab(11, 0); grab(21, 0); }
+          if (verts.length >= 2) {
+            out.push({ type: 'POLYLINE', layer, closed: false, verts });
+            warnings.push('HATCH spline rub aproksimiran (' + degree + '. stupanj).');
+          }
+        } else {
+          break; // unknown edge type - stop consuming this hatch
+        }
+      }
+    }
+  }
+  return out;
+}
 
 function parseEntity(pairs, i, warnings) {
   const type = pairs[i].value;
@@ -380,6 +507,11 @@ function parseEntity(pairs, i, warnings) {
         entity: { type: 'POINT', layer, x: num(get(10, 0)), y: num(get(20, 0)) },
         next: i,
       };
+    case 'HATCH':
+      return {
+        entity: ocs({ type: 'HATCH', layer, boundaries: parseHatch(codes, layer, warnings) }),
+        next: i,
+      };
     case 'INSERT':
       return {
         entity: ocs({
@@ -438,6 +570,17 @@ function mirrorXOcs(e) {
         ...e,
         verts: e.verts.map((v) => ({ x: -v.x, y: v.y, bulge: -v.bulge })),
       };
+    case 'LINE':
+      return { ...e, x1: -e.x1, x2: -e.x2 };
+    case 'ELLIPSE': {
+      // (x,y) -> (-x,y): the point at param t maps to param -t of the
+      // mirrored ellipse, so the range [t1,t2] becomes [-t2,-t1].
+      const t1 = Math.PI * 2 - e.t2;
+      const t2 = Math.PI * 2 - e.t1;
+      return { ...e, cx: -e.cx, mx: -e.mx, t1, t2 };
+    }
+    case 'HATCH':
+      return { ...e, boundaries: (e.boundaries || []).map(mirrorXOcs) };
     default:
       return e;
   }
@@ -561,6 +704,10 @@ function transformEntity(e, { rotDeg = 0, dx = 0, dy = 0, scale = 1 }) {
     case 'POINT': {
       const p = xf(e.x, e.y);
       out.x = p.x; out.y = p.y;
+      return out;
+    }
+    case 'HATCH': {
+      out.boundaries = (e.boundaries || []).map((b) => transformEntity(b, { rotDeg, dx, dy, scale }));
       return out;
     }
     default:

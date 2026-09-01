@@ -328,6 +328,6 @@
     },
     pickExe: async () => null,
     pickDir: async () => null,
-    appInfo: async () => ({ version: '1.1.0 · web proba', dataDir: '' }),
+    appInfo: async () => ({ version: '1.1.1 · web proba', dataDir: '' }),
   };
 })();

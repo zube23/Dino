@@ -811,6 +811,68 @@ function rectsOverlap(a, b) {
 }
 
 // ---------------------------------------------------------------------------
+// Adversarial fuzz regression fixtures (test/fuzz/*.dxf) - each of these
+// once broke the importer; expectations were derived from the DXF spec.
+// ---------------------------------------------------------------------------
+
+{
+  const fs = require('fs');
+  const path = require('path');
+  const FUZZ = [
+    // [file, w, h, tol, mustWarnSubstring|null]
+    ['r12_pface_mesh.dxf', 80, 60, 0.2, '2D konturu'],           // polyface face records
+    ['icad_blocks_dim.dxf', 100, 60, 0.2, 'blokova'],            // $PAPER_SPACE + *D blocks
+    ['icad_blocks_dim_nops.dxf', 100, 60, 0.2, 'blokova'],
+    ['r12_splineframe_only.dxf', 300, 50, 0.2, 'kontrolnim okvirom'],
+    ['f3_periodic_spline.dxf', 83.33, 82.99, 0.5, null],         // periodic closed spline
+    ['f6_ellipse_neg_extrusion.dxf', 30, 15, 0.1, null],         // -Z ellipse arc
+    ['f3_pdf2cad_degenerate.dxf', 100, 50, 0.2, 'degeneriranih'],
+    ['f6_two_entities_sections.dxf', 100, 50, 0.2, null],
+    ['ms_insert.dxf', 100, 60, 0.2, 'blokova'],                  // no phantom block copy
+    ['minsert_as_insert.dxf', 70, 35, 0.1, null],                // 3x2 insert array
+    ['minsert_true.dxf', 70, 35, 0.1, null],                     // MINSERT entity
+    ['f8_spline_offbyone_knots.dxf', 100, 50, 0.2, 'knot'],
+    ['f6_hatch_plus_point.dxf', 80, 60, 0.2, 'HATCH'],           // point must not block hatch
+  ];
+  for (const [file, ew, eh, tol, warnSub] of FUZZ) {
+    try {
+      const info = analyzePart(fs.readFileSync(path.join(__dirname, 'fuzz', file), 'utf8'));
+      const dims = [info.w, info.h].sort((a, b) => a - b);
+      const want = [ew, eh].sort((a, b) => a - b);
+      check('fuzz ' + file + ': dims',
+        approx(dims[0], want[0], tol) && approx(dims[1], want[1], tol),
+        'got ' + dims.map((d) => d.toFixed(2)).join('x') + ' want ' + want.join('x'));
+      if (warnSub) {
+        check('fuzz ' + file + ': warns',
+          info.warnings.some((w) => w.indexOf(warnSub) !== -1), info.warnings.join(';'));
+      }
+    } catch (e) {
+      check('fuzz ' + file + ': imports', false, e.message);
+    }
+  }
+
+  // The periodic spline must actually be closed and smooth, not a polygon.
+  const per = parseDxf(fs.readFileSync(path.join(__dirname, 'fuzz', 'f3_periodic_spline.dxf'), 'utf8'));
+  const pts = sampleEntities(per.entities, 2)[0];
+  const first = pts[0];
+  const last = pts[pts.length - 1];
+  check('periodic spline closes', Math.hypot(first[0] - last[0], first[1] - last[1]) < 0.1,
+    JSON.stringify([first, last]));
+  check('periodic spline is smooth', pts.length > 30, 'pts=' + pts.length);
+
+  // The -Z ellipse arc must land BELOW the major axis (y in [-15, 0]).
+  const ell = parseDxf(fs.readFileSync(path.join(__dirname, 'fuzz', 'f6_ellipse_neg_extrusion.dxf'), 'utf8'));
+  const epts = sampleEntities(ell.entities.filter((e) => e.type === 'ELLIPSE'), 2)[0];
+  const eb = bboxOfPoints(epts);
+  check('-Z ellipse arc de-mirrored', eb.minY < -14.9 && eb.maxY < 0.01, JSON.stringify(eb));
+
+  // MINSERT array: exactly 6 circle copies
+  const mi = parseDxf(fs.readFileSync(path.join(__dirname, 'fuzz', 'minsert_true.dxf'), 'utf8'));
+  check('minsert copies', mi.entities.filter((e) => e.type === 'CIRCLE').length === 6,
+    'got ' + mi.entities.length);
+}
+
+// ---------------------------------------------------------------------------
 // Performance smoke test - "instant" requirement
 // ---------------------------------------------------------------------------
 

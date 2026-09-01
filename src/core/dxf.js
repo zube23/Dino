@@ -97,8 +97,9 @@ function parseDxf(text) {
       if (section === 'BLOCKS') {
         i = parseBlocksSection(pairs, i, blocks, warnings);
       } else if (section === 'ENTITIES') {
+        // Some converters emit several ENTITIES sections - merge them all.
         const res = parseEntityList(pairs, i, 'ENDSEC', warnings);
-        entities = res.entities;
+        entities = entities.concat(res.entities);
         i = res.next;
       } else if (section === 'HEADER') {
         while (i < pairs.length && !(pairs[i].code === 0 && pairs[i].value === 'ENDSEC')) {
@@ -136,14 +137,51 @@ function parseDxf(text) {
     }
   }
 
+  // Separate HATCH fills from cut geometry.
+  let boundaries = [];
+  const takeHatches = (list) => {
+    for (const h of list.filter((e) => e.type === 'HATCH')) {
+      boundaries = boundaries.concat(h.boundaries || []);
+    }
+    return list.filter((e) => e.type !== 'HATCH');
+  };
+  const hadHatch = expanded.some((e) => e.type === 'HATCH');
+  expanded = takeHatches(expanded);
+
   // Some exporters leave ENTITIES empty and put the drawing inside blocks
-  // (e.g. *Model_Space). Fall back to the block contents - but never when an
-  // INSERT was rejected (mirrored/non-uniform placement): recovering the raw
-  // block geometry would silently import it in the wrong orientation.
+  // (e.g. *Model_Space / $MODEL_SPACE). Fall back to the block contents -
+  // but never when an INSERT was rejected (mirrored/non-uniform placement):
+  // recovering the raw block geometry would silently import it in the wrong
+  // orientation.
   const insertRejected = warnings.some((w) => w.indexOf('INSERT') === 0);
-  if (expanded.length === 0 && !insertRejected && Object.keys(blocks).length > 0) {
-    for (const [name, block] of Object.entries(blocks)) {
-      if (/^\*p/i.test(name)) continue; // paper space
+  if (expanded.length === 0 && boundaries.length === 0 && !insertRejected
+    && Object.keys(blocks).length > 0) {
+    const names = Object.keys(blocks);
+    const modelName = names.find((n) => /^[*$]model_space$/i.test(n));
+    let candidates;
+    if (modelName) {
+      candidates = [modelName];
+    } else {
+      // Skip paper space (both naming conventions) and anonymous blocks
+      // (*D dimension graphics, *X hatch, *U...), then skip blocks that are
+      // only referenced by INSERTs of other candidates (they would be
+      // imported twice: expanded at their insert AND raw at the origin).
+      candidates = names.filter((n) => !n.startsWith('*') && !/^\$paper_space/i.test(n));
+      const referenced = new Set();
+      const markRefs = (name, depth) => {
+        if (depth > 5 || !blocks[name]) return;
+        for (const e of blocks[name].entities) {
+          if (e.type === 'INSERT' && !referenced.has(e.name)) {
+            referenced.add(e.name);
+            markRefs(e.name, depth + 1);
+          }
+        }
+      };
+      for (const n of candidates) markRefs(n, 0);
+      candidates = candidates.filter((n) => !referenced.has(n));
+    }
+    for (const name of candidates) {
+      const block = blocks[name];
       for (const e of block.entities) {
         if (e.type === 'INSERT') {
           expandInsert({ ...e, x: e.x - block.baseX, y: e.y - block.baseY }, blocks, expanded, warnings, 0);
@@ -152,23 +190,9 @@ function parseDxf(text) {
         }
       }
     }
-    if (expanded.length > 0) {
+    expanded = takeHatches(expanded);
+    if (expanded.length > 0 || boundaries.length > 0) {
       warnings.push('Geometrija učitana iz blokova (glavni popis entiteta bio je prazan).');
-    }
-  }
-
-  // HATCH fills: use their boundary contours only when the file carries no
-  // other cut geometry (otherwise they would duplicate existing lines and
-  // the laser would cut everything twice).
-  const hatches = expanded.filter((e) => e.type === 'HATCH');
-  expanded = expanded.filter((e) => e.type !== 'HATCH');
-  if (hatches.length > 0) {
-    const boundaries = hatches.flatMap((h) => h.boundaries || []);
-    if (expanded.length === 0 && boundaries.length > 0) {
-      expanded = boundaries;
-      warnings.push('Kontura reza preuzeta iz HATCH ispune (u datoteci nema drugih linija).');
-    } else {
-      warnings.push('HATCH ispuna preskočena (kontura reza već postoji u datoteci).');
     }
   }
 
@@ -178,6 +202,36 @@ function parseDxf(text) {
   if (pointCount > 0) {
     warnings.push('Preskočeno ' + pointCount + ' POINT entiteta (točke se ne režu).');
     expanded = expanded.filter((e) => e.type !== 'POINT');
+  }
+
+  // Degenerate "dot" primitives (zero-length lines, zero-radius circles...)
+  // from converters would equally pollute the bounding box.
+  const isDegenerate = (e) => {
+    switch (e.type) {
+      case 'LINE': return Math.hypot(e.x2 - e.x1, e.y2 - e.y1) < 1e-9;
+      case 'CIRCLE':
+      case 'ARC': return !(e.r > 1e-9);
+      case 'POLYLINE': return !e.verts || e.verts.length < 2;
+      default: return false;
+    }
+  };
+  const degCount = expanded.reduce((n, e) => n + (isDegenerate(e) ? 1 : 0), 0);
+  if (degCount > 0) {
+    warnings.push('Preskočeno ' + degCount + ' degeneriranih entiteta (nulte dužine/polumjera).');
+    expanded = expanded.filter((e) => !isDegenerate(e));
+  }
+
+  // HATCH fills: use their boundary contours only when the file carries no
+  // other cut geometry (otherwise they would duplicate existing lines and
+  // the laser would cut everything twice).
+  if (boundaries.length > 0 || hadHatch) {
+    boundaries = boundaries.filter((e) => !isDegenerate(e));
+    if (expanded.length === 0 && boundaries.length > 0) {
+      expanded = boundaries;
+      warnings.push('Kontura reza preuzeta iz HATCH ispune (u datoteci nema drugih linija).');
+    } else if (hadHatch && expanded.length > 0) {
+      warnings.push('HATCH ispuna preskočena (kontura reza već postoji u datoteci).');
+    }
   }
 
   // Convert to millimeters when the file declares other units.
@@ -432,7 +486,8 @@ function parseEntity(pairs, i, warnings) {
       const flags = parseInt(get(70, '0'), 10);
       const closed = (flags & 1) === 1;
       const is3dOrMesh = (flags & (8 | 16 | 32 | 64)) !== 0;
-      const verts = [];
+      let verts = [];
+      const framePts = [];
       // Vertices follow as separate VERTEX entities until SEQEND.
       while (i < pairs.length) {
         const p = pairs[i];
@@ -448,8 +503,15 @@ function parseEntity(pairs, i, warnings) {
             else if (c.code === 70) vflags = parseInt(c.value, 10) || 0;
             i++;
           }
-          // Skip spline-frame control points (flag 16) - keep fitted/plain ones.
-          if (hasX && (vflags & 16) === 0) verts.push({ x, y, bulge });
+          if (hasX) {
+            // Polyface face records (flag 128 without 64) are topology only -
+            // their spec-mandated (0,0,0) location must never become geometry.
+            const isFaceRecord = (vflags & 128) !== 0 && (vflags & 64) === 0;
+            const isSplineFrame = (vflags & 16) !== 0;
+            if (isFaceRecord) { /* skip */ }
+            else if (isSplineFrame) framePts.push({ x, y, bulge });
+            else verts.push({ x, y, bulge });
+          }
         } else if (p.code === 0 && p.value === 'SEQEND') {
           i++;
           while (i < pairs.length && pairs[i].code !== 0) i++;
@@ -459,6 +521,12 @@ function parseEntity(pairs, i, warnings) {
         } else {
           i++;
         }
+      }
+      if (verts.length < 2 && framePts.length >= 2) {
+        // Only spline-frame control points present (no fitted vertices):
+        // better an approximate curve with a warning than silent loss.
+        warnings.push('Spline-fit polilinija aproksimirana kontrolnim okvirom.');
+        verts = framePts;
       }
       if (is3dOrMesh) {
         warnings.push('3D polilinija/mreža pretvorena u 2D konturu.');
@@ -482,26 +550,44 @@ function parseEntity(pairs, i, warnings) {
         else if (c.code === 11) { curFit = { x: num(c.value), y: 0 }; fit.push(curFit); }
         else if (c.code === 21 && curFit) curFit.y = num(c.value);
       }
+      const splClosed = (flags & 1) === 1;
+      const okKnots = knots.length === ctrl.length + degree + 1 && ctrl.length > degree;
+      const periodicForm = splClosed && ctrl.length > degree && knots.length === ctrl.length + 1;
+      if (!okKnots && !periodicForm && fit.length < 2 && ctrl.length > 0) {
+        warnings.push('SPLINE ima neispravan knot vektor — aproksimiran kontrolnim poligonom.');
+      }
       return {
         entity: {
           type: 'SPLINE', layer, degree,
-          closed: (flags & 1) === 1,
+          closed: splClosed,
           knots, weights, ctrl, fit,
         },
         next: i,
       };
     }
-    case 'ELLIPSE':
-      return {
-        entity: {
-          type: 'ELLIPSE', layer,
-          cx: num(get(10, 0)), cy: num(get(20, 0)),
-          mx: num(get(11, 0)), my: num(get(21, 0)),
-          ratio: num(get(40, 1)),
-          t1: num(get(41, 0)), t2: num(get(42, Math.PI * 2)),
-        },
-        next: i,
+    case 'ELLIPSE': {
+      // ELLIPSE center/major axis are WCS (unlike ARC/CIRCLE), but the minor
+      // axis direction is extrusion x major: a -Z extrusion mirrors the arc
+      // about its major axis, which we express by reversing the parameter
+      // range. Tilted planes are refused like every other entity.
+      const ent = {
+        type: 'ELLIPSE', layer,
+        cx: num(get(10, 0)), cy: num(get(20, 0)),
+        mx: num(get(11, 0)), my: num(get(21, 0)),
+        ratio: num(get(40, 1)),
+        t1: num(get(41, 0)), t2: num(get(42, Math.PI * 2)),
       };
+      const E = 1e-6;
+      if (Math.abs(ocsX) < E && Math.abs(ocsY) < E && Math.abs(ocsZ + 1) < E) {
+        const { t1, t2 } = ent;
+        ent.t1 = Math.PI * 2 - t2;
+        ent.t2 = Math.PI * 2 - t1;
+      } else if (Math.abs(ocsX) >= E || Math.abs(ocsY) >= E || Math.abs(ocsZ - 1) >= E) {
+        warnings.push('Entitet preskočen: nagnuta 3D ravnina (ekstruzija) nije podržana (ELLIPSE).');
+        return { entity: null, next: i };
+      }
+      return { entity: ent, next: i };
+    }
     case 'POINT':
       return {
         entity: { type: 'POINT', layer, x: num(get(10, 0)), y: num(get(20, 0)) },
@@ -513,6 +599,9 @@ function parseEntity(pairs, i, warnings) {
         next: i,
       };
     case 'INSERT':
+    case 'MINSERT':
+      // MINSERT (and INSERT with column/row codes) is a rectangular array of
+      // block copies; spacing is applied in the insert's rotated frame.
       return {
         entity: ocs({
           type: 'INSERT', layer,
@@ -520,6 +609,10 @@ function parseEntity(pairs, i, warnings) {
           x: num(get(10, 0)), y: num(get(20, 0)),
           sx: num(get(41, 1)), sy: num(get(42, 1)),
           rot: num(get(50, 0)),
+          cols: Math.max(1, parseInt(get(70, '1'), 10) || 1),
+          rows: Math.max(1, parseInt(get(71, '1'), 10) || 1),
+          colSp: num(get(44, 0)),
+          rowSp: num(get(45, 0)),
         }),
         next: i,
       };
@@ -610,21 +703,40 @@ function expandInsert(ins, blocks, out, warnings, depth) {
     warnings.push('INSERT "' + ins.name + '" preskočen: nejednoliko ili zrcalno skaliranje nije podržano.');
     return;
   }
-  for (const e of block.entities) {
-    if (e.type === 'INSERT') {
-      // Transform the nested insert's placement, then recurse.
-      const p = applyXform(e.x - block.baseX, e.y - block.baseY, sx, rot, ins.x, ins.y);
-      expandInsert({
-        ...e,
-        x: p.x,
-        y: p.y,
-        sx: e.sx * sx,
-        sy: e.sy * sy,
-        rot: e.rot + rot,
-      }, blocks, out, warnings, depth + 1);
-    } else {
-      const moved = translateEntity(cloneEntity(e), -block.baseX, -block.baseY);
-      out.push(transformEntity(moved, { rotDeg: rot, dx: ins.x, dy: ins.y, scale: sx }));
+  // MINSERT-style rectangular array (cols/rows default to 1 = plain insert).
+  let cols = Math.max(1, ins.cols || 1);
+  let rows = Math.max(1, ins.rows || 1);
+  if (cols * rows > 1000) {
+    warnings.push('INSERT "' + ins.name + '": polje ograničeno na 1000 kopija.');
+    while (cols * rows > 1000) {
+      if (cols > rows) cols--;
+      else rows--;
+    }
+  }
+  for (let rI = 0; rI < rows; rI++) {
+    for (let cI = 0; cI < cols; cI++) {
+      const off = (cI === 0 && rI === 0)
+        ? { x: 0, y: 0 }
+        : applyXform(cI * (ins.colSp || 0), rI * (ins.rowSp || 0), 1, rot, 0, 0);
+      const ix = ins.x + off.x;
+      const iy = ins.y + off.y;
+      for (const e of block.entities) {
+        if (e.type === 'INSERT') {
+          // Transform the nested insert's placement, then recurse.
+          const p = applyXform(e.x - block.baseX, e.y - block.baseY, sx, rot, ix, iy);
+          expandInsert({
+            ...e,
+            x: p.x,
+            y: p.y,
+            sx: e.sx * sx,
+            sy: e.sy * sy,
+            rot: e.rot + rot,
+          }, blocks, out, warnings, depth + 1);
+        } else {
+          const moved = translateEntity(cloneEntity(e), -block.baseX, -block.baseY);
+          out.push(transformEntity(moved, { rotDeg: rot, dx: ix, dy: iy, scale: sx }));
+        }
+      }
     }
   }
 }
@@ -849,16 +961,35 @@ function bulgeArcPoints(v1, v2, bulge, quality = 1) {
 
 function sampleSpline(e, quality = 1) {
   const degree = Math.max(1, e.degree || 3);
-  const ctrl = e.ctrl || [];
-  const knots = e.knots || [];
-  const weights = (e.weights && e.weights.length === ctrl.length) ? e.weights : ctrl.map(() => 1);
+  let ctrl = e.ctrl || [];
+  let knots = e.knots || [];
+  let weights = (e.weights && e.weights.length === ctrl.length) ? e.weights.slice() : ctrl.map(() => 1);
+
+  // AutoCAD/BricsCAD compact periodic form: closed spline, knots = nCtrl+1,
+  // control points not wrapped. Unwrap by extending the control points with
+  // the first `degree` entries and continuing the knot spacing on both
+  // sides, then evaluate over the original domain.
+  if (e.closed && ctrl.length > degree && knots.length === ctrl.length + 1) {
+    const n = ctrl.length;
+    ctrl = ctrl.concat(ctrl.slice(0, degree));
+    weights = weights.concat(weights.slice(0, degree));
+    const ext = knots.slice();
+    for (let j = 0; j < degree; j++) {
+      ext.push(ext[ext.length - 1] + (knots[j + 1] - knots[j]));
+      ext.unshift(ext[0] - (knots[n - j] - knots[n - j - 1]));
+    }
+    knots = ext;
+  }
 
   const validKnots = knots.length === ctrl.length + degree + 1 && ctrl.length > degree;
   if (!validKnots) {
-    // Fallback: smooth curve through the fit points, else control polygon.
+    // Fallback: smooth curve through the fit points, else control polygon
+    // (a parse-time warning marks this approximation).
     if (e.fit && e.fit.length >= 3) return catmullRomPoints(e.fit, e.closed, quality);
     if (e.fit && e.fit.length === 2) return e.fit.map((p) => [p.x, p.y]);
-    return ctrl.map((p) => [p.x, p.y]);
+    const poly = ctrl.map((p) => [p.x, p.y]);
+    if (e.closed && poly.length >= 3) poly.push([poly[0][0], poly[0][1]]);
+    return poly;
   }
 
   const tMin = knots[degree];

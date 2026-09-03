@@ -54,6 +54,7 @@
       h: Math.round(info.h * 1000) / 1000,
       area: Math.round(info.area * 1000) / 1000,
       outline: info.outline,
+      texts: info.texts,
       warnings: info.warnings,
       entityCount: info.entityCount,
       createdAt: new Date().toISOString(),
@@ -328,6 +329,6 @@
     },
     pickExe: async () => null,
     pickDir: async () => null,
-    appInfo: async () => ({ version: '1.1.1 · web proba', dataDir: '' }),
+    appInfo: async () => ({ version: '1.2.0 · web proba', dataDir: '' }),
   };
 })();

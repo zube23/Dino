@@ -68,6 +68,18 @@ html, body {
 
 .view { padding: 14px; }
 
+.mcard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.steps {
+  color: var(--muted);
+  font-size: 13px;
+  letter-spacing: 0.3px;
+}
+.steps b { color: var(--accent2); }
+
 /* ---------------- machine view ---------------- */
 .machine {
   max-width: 1160px;
@@ -253,10 +265,20 @@ html, body {
 }
 .drop.dragover { border-color: var(--accent); color: var(--accent); background: rgba(255,122,26,0.06); }
 
-.parts { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.parts { display: flex; flex-direction: column; gap: 8px; }
+.parts-head {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) 110px 120px 110px 64px 40px;
+  gap: 10px;
+  padding: 10px 10px 4px;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
 .part-row {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) 110px 120px 110px 64px 40px;
   gap: 10px;
   align-items: center;
   background: var(--bg2);
@@ -264,6 +286,9 @@ html, body {
   border-radius: 10px;
   padding: 8px 10px;
 }
+.part-cell { display: flex; gap: 10px; align-items: center; min-width: 0; }
+/* Wide layout has a header row - per-field labels would be redundant. */
+.part-field > span { display: none; }
 .part-row.disabled { opacity: 0.45; }
 .part-thumb {
   width: 84px;
@@ -286,7 +311,7 @@ html, body {
 .part-main input:hover, .part-main input:focus { border-color: var(--line); background: var(--bg); outline: none; }
 .part-dims { color: var(--muted); font-size: 12px; }
 .part-dims .link { color: var(--warn); cursor: pointer; text-decoration: underline; }
-.part-field { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--muted); width: 108px; flex: 0 0 auto; }
+.part-field { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--muted); min-width: 0; }
 .part-field input, .part-field select {
   font-size: 15px;
   padding: 5px 7px;
@@ -301,11 +326,23 @@ html, body {
 
 .empty { color: var(--muted); padding: 10px 4px; }
 
-.settings-grid { display: flex; flex-direction: column; gap: 12px; max-width: 720px; }
-.settings-grid label { display: flex; flex-direction: column; gap: 5px; color: var(--muted); font-size: 13px; }
-.settings-grid label.check { flex-direction: row; align-items: center; font-size: 15px; color: var(--text); gap: 9px; flex-wrap: wrap; }
-.settings-grid label.check em { color: var(--muted); font-style: normal; font-size: 12px; }
-.settings-grid input[type="text"] {
+.settings-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 18px;
+}
+.sgroup { display: flex; flex-direction: column; gap: 12px; }
+.sgroup h3 {
+  margin: 0 0 2px;
+  font-size: 13px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--accent2);
+}
+.sgroup label { display: flex; flex-direction: column; gap: 5px; color: var(--muted); font-size: 13px; }
+.sgroup label.check { flex-direction: row; align-items: center; font-size: 15px; color: var(--text); gap: 9px; flex-wrap: wrap; }
+.sgroup label.check em { color: var(--muted); font-style: normal; font-size: 12px; }
+.sgroup input[type="text"] {
   font-size: 15px;
   padding: 8px 10px;
   background: var(--bg);
@@ -314,7 +351,7 @@ html, body {
   border-radius: 8px;
   width: 100%;
 }
-.settings-grid input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent); }
+.sgroup input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent); }
 .pathrow { display: flex; gap: 8px; }
 .pathrow input { flex: 1; }
 
@@ -400,6 +437,13 @@ html, body {
 .demo-note a { color: var(--accent2); font-weight: 700; }
 
 /* ---------------- narrow window (beside CypCut) ---------------- */
+@media (max-width: 700px) {
+  .parts-head { display: none; }
+  .part-row { display: flex; flex-wrap: wrap; }
+  .part-cell { flex: 1 1 100%; }
+  .part-field { width: 104px; }
+  .part-field > span { display: block; }
+}
 @media (max-width: 560px) {
   .view { padding: 10px; }
   .topbar { gap: 8px; padding: 6px 10px; }
@@ -407,6 +451,7 @@ html, body {
   .tab { font-size: 13px; padding: 6px 12px; }
   .dims { gap: 8px; }
   .generate { letter-spacing: 1px; }
+  .steps { font-size: 12px; }
   .cards { grid-template-columns: 1fr; }
   .history-row .hdate, .history-row .hdims { width: auto; }
 }
@@ -437,18 +482,20 @@ html, body {
   <!-- ======================= STROJ ======================= -->
   <main id="viewStroj" class="view">
     <div class="machine">
-      <div class="dims">
-        <label class="dim">
-          <span>DULJINA (mm)</span>
-          <input id="inWidth" type="text" inputmode="decimal" placeholder="2000" autocomplete="off">
-        </label>
-        <label class="dim">
-          <span>ŠIRINA (mm)</span>
-          <input id="inHeight" type="text" inputmode="decimal" placeholder="1000" autocomplete="off">
-        </label>
-      </div>
-
-      <button id="btnGenerate" class="generate">GENERIRAJ</button>
+      <section class="card mcard">
+        <div class="steps"><b>1.</b> Izmjeri lim i upiši mjere &nbsp;·&nbsp; <b>2.</b> GENERIRAJ ili uzmi gotovu ponudu &nbsp;·&nbsp; <b>3.</b> Povuci karticu u CypCut</div>
+        <div class="dims">
+          <label class="dim">
+            <span>DULJINA (mm)</span>
+            <input id="inWidth" type="text" inputmode="decimal" placeholder="2000" autocomplete="off">
+          </label>
+          <label class="dim">
+            <span>ŠIRINA (mm)</span>
+            <input id="inHeight" type="text" inputmode="decimal" placeholder="1000" autocomplete="off">
+          </label>
+        </div>
+        <button id="btnGenerate" class="generate">GENERIRAJ</button>
+      </section>
 
       <div id="genStatus" class="status" hidden></div>
       <div id="genWarn" class="warn" hidden></div>
@@ -481,36 +528,50 @@ html, body {
           <input id="fileInput" type="file" accept=".dxf,.DXF" multiple hidden>
         </div>
         <div id="importErrors" class="warn" hidden></div>
+        <div class="parts-head">
+          <div class="ph-part">Part (klik na sličicu = veliki pregled)</div>
+          <div>Prioritet</div>
+          <div>Način</div>
+          <div>Komada</div>
+          <div>Uklj.</div>
+          <div></div>
+        </div>
         <div id="partsList" class="parts"></div>
       </section>
 
       <section class="card">
         <h2>Postavke</h2>
-        <div class="settings-grid">
-          <label>Razmak između partova (mm)
-            <input id="setGap" type="text" inputmode="decimal">
-          </label>
-          <label>Rub ploče (mm)
-            <input id="setMargin" type="text" inputmode="decimal">
-          </label>
-          <label>Ponude ploča sličnih dimenzija — tolerancija (mm)
-            <input id="setHistTol" type="text" inputmode="decimal">
-          </label>
-          <label class="check"><input id="setRotate" type="checkbox"> Dozvoli rotaciju 90° <em>(zrcaljenje je uvijek zabranjeno)</em></label>
-          <label class="check" id="rowAutoOpen"><input id="setAutoOpen" type="checkbox"> Nakon generiranja odmah otvori u CypCut-u</label>
-          <label class="check"><input id="setFrame" type="checkbox"> Dodaj okvir ploče u DXF (layer PLOCA)</label>
-          <label id="rowScicut">Program lasera — CypCut (.exe)
-            <span class="pathrow">
-              <input id="setScicut" type="text" placeholder="prazno = zadana aplikacija za .dxf">
-              <button id="btnPickExe" class="btn small">…</button>
-            </span>
-          </label>
-          <label id="rowOutput">Zadana mapa za "Spremi DXF"
-            <span class="pathrow">
-              <input id="setOutput" type="text" placeholder="prazno = Dokumenti">
-              <button id="btnPickDir" class="btn small">…</button>
-            </span>
-          </label>
+        <div class="settings-cols">
+          <div class="sgroup">
+            <h3>Slaganje na ploču</h3>
+            <label>Razmak između partova (mm)
+              <input id="setGap" type="text" inputmode="decimal">
+            </label>
+            <label>Rub ploče (mm)
+              <input id="setMargin" type="text" inputmode="decimal">
+            </label>
+            <label>Ponude sličnih ploča — tolerancija (mm)
+              <input id="setHistTol" type="text" inputmode="decimal">
+            </label>
+            <label class="check"><input id="setRotate" type="checkbox"> Dozvoli rotaciju 90° <em>(zrcaljenje je uvijek zabranjeno)</em></label>
+            <label class="check"><input id="setFrame" type="checkbox"> Dodaj okvir ploče u DXF (layer PLOCA)</label>
+          </div>
+          <div class="sgroup" id="grpLaser">
+            <h3>Program lasera</h3>
+            <label class="check" id="rowAutoOpen"><input id="setAutoOpen" type="checkbox"> Nakon generiranja odmah otvori u CypCut-u</label>
+            <label id="rowScicut">CypCut program (.exe)
+              <span class="pathrow">
+                <input id="setScicut" type="text" placeholder="prazno = zadana aplikacija za .dxf">
+                <button id="btnPickExe" class="btn small">…</button>
+              </span>
+            </label>
+            <label id="rowOutput">Zadana mapa za "Spremi DXF"
+              <span class="pathrow">
+                <input id="setOutput" type="text" placeholder="prazno = Dokumenti">
+                <button id="btnPickDir" class="btn small">…</button>
+              </span>
+            </label>
+          </div>
         </div>
       </section>
 
@@ -578,6 +639,19 @@ __mods['dxf'] = (function () { const module = { exports: {} };
 
 const DEG = Math.PI / 180;
 
+/**
+ * Segment count for an arc so the chord (sagitta) error stays below a
+ * tolerance that scales with `quality`: 0.2mm at preview quality 1,
+ * 0.05mm at analysis quality 4, 0.025mm at write quality 8. This keeps a
+ * 10mm hole and a 2m radius contour equally faithful.
+ */
+function arcSegments(sweepRad, r, quality) {
+  const tol = 0.2 / Math.max(0.25, quality);
+  if (!(r > tol)) return 8;
+  const step = 2 * Math.acos(Math.max(-1, 1 - tol / r));
+  return Math.min(4096, Math.max(8, Math.ceil(Math.abs(sweepRad) / step)));
+}
+
 // ---------------------------------------------------------------------------
 // Tokenizing
 // ---------------------------------------------------------------------------
@@ -633,6 +707,7 @@ function parseDxf(text) {
   const pairs = parsePairs(text);
   const warnings = [];
   const blocks = {}; // name -> {baseX, baseY, entities}
+  const layers = {}; // name -> ACI color from the LAYER table
   let entities = [];
   let insunits = 0;
 
@@ -664,6 +739,23 @@ function parseDxf(text) {
           }
           i++;
         }
+      } else if (section === 'TABLES') {
+        // Layer colors: CAM programs map them to cutting technology.
+        while (i < pairs.length && !(pairs[i].code === 0 && pairs[i].value === 'ENDSEC')) {
+          if (pairs[i].code === 0 && pairs[i].value === 'LAYER') {
+            i++;
+            let lname = null;
+            let lcolor = null;
+            while (i < pairs.length && pairs[i].code !== 0) {
+              if (pairs[i].code === 2) lname = pairs[i].value;
+              else if (pairs[i].code === 62) lcolor = parseInt(pairs[i].value, 10);
+              i++;
+            }
+            if (lname && Number.isFinite(lcolor) && lcolor !== 0) layers[lname] = Math.abs(lcolor);
+          } else {
+            i++;
+          }
+        }
       } else {
         // Skip section
         while (i < pairs.length && !(pairs[i].code === 0 && pairs[i].value === 'ENDSEC')) i++;
@@ -686,7 +778,7 @@ function parseDxf(text) {
     }
   }
 
-  // Separate HATCH fills from cut geometry.
+  // Separate HATCH fills and TEXT annotations from cut geometry.
   let boundaries = [];
   const takeHatches = (list) => {
     for (const h of list.filter((e) => e.type === 'HATCH')) {
@@ -696,6 +788,8 @@ function parseDxf(text) {
   };
   const hadHatch = expanded.some((e) => e.type === 'HATCH');
   expanded = takeHatches(expanded);
+  let texts = expanded.filter((e) => e.type === 'TEXT');
+  expanded = expanded.filter((e) => e.type !== 'TEXT');
 
   // Some exporters leave ENTITIES empty and put the drawing inside blocks
   // (e.g. *Model_Space / $MODEL_SPACE). Fall back to the block contents -
@@ -740,6 +834,8 @@ function parseDxf(text) {
       }
     }
     expanded = takeHatches(expanded);
+    texts = texts.concat(expanded.filter((e) => e.type === 'TEXT'));
+    expanded = expanded.filter((e) => e.type !== 'TEXT');
     if (expanded.length > 0 || boundaries.length > 0) {
       warnings.push('Geometrija učitana iz blokova (glavni popis entiteta bio je prazan).');
     }
@@ -783,6 +879,32 @@ function parseDxf(text) {
     }
   }
 
+  // TEXT that lies on the cut geometry is an engraving mark and is kept;
+  // text outside it (title blocks, dimensions) must not pollute the part.
+  if (texts.length > 0 && expanded.length > 0) {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const poly of sampleEntities(expanded, 1)) {
+      for (const [x, y] of poly) {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+    const m = Math.max(2, 0.05 * Math.max(maxX - minX, maxY - minY));
+    const kept = texts.filter((t) => t.x >= minX - m && t.x <= maxX + m
+      && t.y >= minY - m && t.y <= maxY + m);
+    if (kept.length < texts.length) {
+      warnings.push('Preskočen tekst izvan konture (' + (texts.length - kept.length) + ' kom - natpis/kota, ne gravura).');
+    }
+    expanded = expanded.concat(kept);
+  } else if (texts.length > 0) {
+    warnings.push('Preskočen tekst (' + texts.length + ' kom) - u datoteci nema geometrije uz koju bi se gravirao.');
+  }
+
   // Convert to millimeters when the file declares other units.
   const unitScale = UNIT_TO_MM[insunits] || 1;
   if (unitScale !== 1 && expanded.length > 0) {
@@ -790,7 +912,7 @@ function parseDxf(text) {
     warnings.push('Mjere pretvorene u milimetre (×' + unitScale + ').');
   }
 
-  return { entities: expanded, warnings };
+  return { entities: expanded, warnings, layers };
 }
 
 function parseBlocksSection(pairs, i, blocks, warnings) {
@@ -848,7 +970,7 @@ function parseEntityList(pairs, i, endMarker, warnings) {
 }
 
 const SKIPPED_TYPES = new Set([
-  'TEXT', 'MTEXT', 'DIMENSION', 'SOLID', 'ATTRIB', 'ATTDEF',
+  'DIMENSION', 'SOLID', 'ATTRIB', 'ATTDEF',
   'LEADER', 'MLEADER', 'WIPEOUT', 'IMAGE', 'VIEWPORT', 'XLINE', 'RAY',
   '3DFACE', 'REGION', 'BODY', 'TRACE', 'TOLERANCE', 'OLE2FRAME', 'ACAD_PROXY_ENTITY',
 ]);
@@ -986,18 +1108,81 @@ function parseEntity(pairs, i, warnings) {
   const ocsX = num(get(210, 0));
   const ocsY = num(get(220, 0));
   const ocsZ = num(get(230, 1));
-  const ocs = (entity) => applyOcs(entity, ocsX, ocsY, ocsZ, warnings);
+  // ACI color (62): CypCut and friends map colors/layers to cut technology,
+  // so it must survive the round trip. 0 (ByBlock) and 256 (ByLayer) are
+  // defaults and stay implicit.
+  const colorRaw = get(62, null);
+  const entColor = colorRaw === null ? undefined : parseInt(colorRaw, 10);
+  const stamp = (entity) => {
+    if (entity && Number.isFinite(entColor) && entColor !== 0 && entColor !== 256) {
+      entity.color = entColor;
+    }
+    return entity;
+  };
+  const ocs = (entity) => applyOcs(stamp(entity), ocsX, ocsY, ocsZ, warnings);
 
   switch (type) {
     case 'LINE':
       return {
-        entity: {
+        entity: stamp({
           type: 'LINE', layer,
           x1: num(get(10, 0)), y1: num(get(20, 0)),
           x2: num(get(11, 0)), y2: num(get(21, 0)),
-        },
+        }),
         next: i,
       };
+    case 'TEXT': {
+      // Text on the part is an engraving/marking - keep it so the output in
+      // CypCut looks like the original drawing. (Filtered later if it lies
+      // outside the cut geometry - then it is annotation, not marking.)
+      const halign = parseInt(get(72, '0'), 10) || 0;
+      const valign = parseInt(get(73, '0'), 10) || 0;
+      const ax = get(11, null);
+      const ay = get(21, null);
+      const useAlign = (halign !== 0 || valign !== 0) && ax !== null && ay !== null;
+      return {
+        entity: stamp({
+          type: 'TEXT', layer,
+          x: useAlign ? num(ax) : num(get(10, 0)),
+          y: useAlign ? num(ay) : num(get(20, 0)),
+          h: num(get(40, 5)),
+          rot: num(get(50, 0)),
+          text: String(get(1, '')),
+        }),
+        next: i,
+      };
+    }
+    case 'MTEXT': {
+      // Reduce MTEXT to plain single-style text (formatting codes stripped).
+      let s = '';
+      for (const c of codes) {
+        if (c.code === 3) s += c.value;
+      }
+      s += String(get(1, ''));
+      s = s.replace(/\\\\/g, '\u0001')
+        .replace(/\\P/g, ' ')
+        .replace(/\\[A-Za-z][^;{}\\]*;/g, '')
+        .replace(/[{}]/g, '')
+        .replace(/\u0001/g, '\\');
+      let rot = num(get(50, 0));
+      const dirX = get(11, null);
+      const dirY = get(21, null);
+      if (dirX !== null && dirY !== null) {
+        rot = Math.atan2(num(dirY), num(dirX)) / DEG;
+      }
+      if (s.trim() !== '') warnings.push('MTEXT pretvoren u jednostavni tekst.');
+      return {
+        entity: s.trim() === '' ? null : stamp({
+          type: 'TEXT', layer,
+          x: num(get(10, 0)),
+          y: num(get(20, 0)),
+          h: num(get(40, 5)),
+          rot,
+          text: s,
+        }),
+        next: i,
+      };
+    }
     case 'CIRCLE':
       return {
         entity: ocs({
@@ -1371,6 +1556,14 @@ function transformEntity(e, { rotDeg = 0, dx = 0, dy = 0, scale = 1 }) {
       out.boundaries = (e.boundaries || []).map((b) => transformEntity(b, { rotDeg, dx, dy, scale }));
       return out;
     }
+    case 'TEXT': {
+      const p = xf(e.x, e.y);
+      out.x = p.x;
+      out.y = p.y;
+      out.h = e.h * scale;
+      out.rot = norm360((e.rot || 0) + rotDeg);
+      return out;
+    }
     default:
       throw new Error('transformEntity: unknown entity type ' + e.type);
   }
@@ -1407,7 +1600,7 @@ function sampleEntity(e, quality = 1) {
     case 'LINE':
       return [[[e.x1, e.y1], [e.x2, e.y2]]];
     case 'CIRCLE': {
-      const n = Math.max(16, Math.round(32 * q));
+      const n = arcSegments(Math.PI * 2, e.r, q);
       const pts = [];
       for (let i = 0; i <= n; i++) {
         const t = (i / n) * Math.PI * 2;
@@ -1420,7 +1613,7 @@ function sampleEntity(e, quality = 1) {
       let a2 = e.a2 * DEG;
       if (a2 <= a1 + 1e-12) a2 += Math.PI * 2;
       const sweep = a2 - a1;
-      const n = Math.max(8, Math.round((sweep / (Math.PI * 2)) * 48 * q));
+      const n = arcSegments(sweep, e.r, q);
       const pts = [];
       for (let i = 0; i <= n; i++) {
         const t = a1 + (sweep * i) / n;
@@ -1454,7 +1647,9 @@ function sampleEntity(e, quality = 1) {
       const major = Math.hypot(e.mx, e.my);
       const ux = e.mx; const uy = e.my;
       const vx = -uy * e.ratio; const vy = ux * e.ratio;
-      const n = Math.min(1024, Math.max(24, Math.round(((t2 - t1) / (Math.PI * 2)) * 64 * q * Math.max(1, major / 50))));
+      // Bound the chord error by the tightest curvature (b^2/a at the ends).
+      const nMajor = arcSegments(t2 - t1, major, q);
+      const n = Math.min(4096, Math.max(24, Math.round(nMajor * Math.max(1, 1 / Math.max(0.05, e.ratio)))));
       const pts = [];
       for (let i = 0; i <= n; i++) {
         const t = t1 + ((t2 - t1) * i) / n;
@@ -1496,7 +1691,7 @@ function bulgeArcPoints(v1, v2, bulge, quality = 1) {
   const cx = mx + px * h * side;
   const cy = my + py * h * side;
   const a1 = Math.atan2(v1.y - cy, v1.x - cx);
-  const n = Math.max(4, Math.round((Math.abs(theta) / (Math.PI * 2)) * 48 * Math.max(0.25, quality)));
+  const n = arcSegments(Math.abs(theta), r, quality);
   const pts = [];
   for (let i = 0; i <= n; i++) {
     const t = a1 + (theta * i) / n;
@@ -1543,7 +1738,7 @@ function sampleSpline(e, quality = 1) {
 
   const tMin = knots[degree];
   const tMax = knots[knots.length - 1 - degree];
-  const n = Math.min(2048, Math.max(24, Math.round(ctrl.length * 8 * Math.max(0.25, quality))));
+  const n = Math.min(4096, Math.max(32, Math.round(ctrl.length * 16 * Math.max(0.25, quality))));
   const pts = [];
   for (let i = 0; i <= n; i++) {
     const t = tMin + ((tMax - tMin) * i) / n;
@@ -1657,14 +1852,14 @@ function writeDxf(entities, opts = {}) {
   const flatten = [];
   for (const e of entities) {
     if (e.type === 'SPLINE' || e.type === 'ELLIPSE') {
-      const polys = sampleEntity(e, 4);
+      const polys = sampleEntity(e, 8); // chord error under ~0.025mm
       for (const pts of polys) {
         if (pts.length < 2) continue;
         const first = pts[0];
         const last = pts[pts.length - 1];
         const closed = Math.hypot(first[0] - last[0], first[1] - last[1]) < 1e-6;
         const verts = (closed ? pts.slice(0, -1) : pts).map((p) => ({ x: p[0], y: p[1], bulge: 0 }));
-        flatten.push({ type: 'POLYLINE', layer: e.layer || '0', closed, verts });
+        flatten.push({ type: 'POLYLINE', layer: e.layer || '0', closed, verts, color: e.color });
       }
     } else {
       flatten.push(e);
@@ -1697,14 +1892,15 @@ function writeDxf(entities, opts = {}) {
   push(9, '$EXTMAX'); push(10, fmt(maxX)); push(20, fmt(maxY)); push(30, 0);
   push(0, 'ENDSEC');
 
-  // TABLES (layers only)
+  // TABLES (layers with their original colors - CAM maps them to technology)
+  const layerColors = opts.layerColors || {};
   push(0, 'SECTION'); push(2, 'TABLES');
   push(0, 'TABLE'); push(2, 'LAYER'); push(70, layers.size);
   for (const name of layers) {
     push(0, 'LAYER');
     push(2, name);
     push(70, 0);
-    push(62, 7);
+    push(62, Number.isFinite(layerColors[name]) ? layerColors[name] : 7);
     push(6, 'CONTINUOUS');
   }
   push(0, 'ENDTAB');
@@ -1712,16 +1908,26 @@ function writeDxf(entities, opts = {}) {
 
   // ENTITIES
   push(0, 'SECTION'); push(2, 'ENTITIES');
+  const pushColor = (e) => {
+    if (Number.isFinite(e.color) && e.color !== 0 && e.color !== 256) push(62, e.color);
+  };
   for (const e of flatten) {
     const layer = String(e.layer || '0');
     switch (e.type) {
       case 'LINE':
-        push(0, 'LINE'); push(8, layer);
+        push(0, 'LINE'); push(8, layer); pushColor(e);
         push(10, fmt(e.x1)); push(20, fmt(e.y1)); push(30, 0);
         push(11, fmt(e.x2)); push(21, fmt(e.y2)); push(31, 0);
         break;
+      case 'TEXT':
+        push(0, 'TEXT'); push(8, layer); pushColor(e);
+        push(10, fmt(e.x)); push(20, fmt(e.y)); push(30, 0);
+        push(40, fmt(e.h));
+        push(1, String(e.text || ''));
+        if (e.rot && Math.abs(e.rot) > 1e-9) push(50, fmt(e.rot));
+        break;
       case 'CIRCLE':
-        push(0, 'CIRCLE'); push(8, layer);
+        push(0, 'CIRCLE'); push(8, layer); pushColor(e);
         push(10, fmt(e.cx)); push(20, fmt(e.cy)); push(30, 0);
         push(40, fmt(e.r));
         break;
@@ -1730,11 +1936,11 @@ function writeDxf(entities, opts = {}) {
         // rendered as nothing by most CAM programs.
         const sweep = arcSweep(e.a1, e.a2);
         if (sweep >= 360 - 1e-9) {
-          push(0, 'CIRCLE'); push(8, layer);
+          push(0, 'CIRCLE'); push(8, layer); pushColor(e);
           push(10, fmt(e.cx)); push(20, fmt(e.cy)); push(30, 0);
           push(40, fmt(e.r));
         } else {
-          push(0, 'ARC'); push(8, layer);
+          push(0, 'ARC'); push(8, layer); pushColor(e);
           push(10, fmt(e.cx)); push(20, fmt(e.cy)); push(30, 0);
           push(40, fmt(e.r));
           push(50, fmt(norm360(e.a1))); push(51, fmt(norm360(e.a2)));
@@ -1742,7 +1948,7 @@ function writeDxf(entities, opts = {}) {
         break;
       }
       case 'POLYLINE':
-        push(0, 'POLYLINE'); push(8, layer);
+        push(0, 'POLYLINE'); push(8, layer); pushColor(e);
         push(66, 1); push(70, e.closed ? 1 : 0);
         push(10, 0); push(20, 0); push(30, 0);
         for (const v of e.verts) {
@@ -1753,7 +1959,7 @@ function writeDxf(entities, opts = {}) {
         push(0, 'SEQEND'); push(8, layer);
         break;
       case 'POINT':
-        push(0, 'POINT'); push(8, layer);
+        push(0, 'POINT'); push(8, layer); pushColor(e);
         push(10, fmt(e.x)); push(20, fmt(e.y)); push(30, 0);
         break;
       default:
@@ -1899,6 +2105,51 @@ function normDeg(a) {
   return r;
 }
 
+/**
+ * Douglas-Peucker polyline simplification: removes points whose removal
+ * moves the curve by less than `eps`. Unlike every-Nth decimation this
+ * preserves corners and detail exactly, dropping only redundant points on
+ * straight-ish runs.
+ */
+function simplifyPolyline(pts, eps) {
+  if (!Array.isArray(pts) || pts.length <= 2 || !(eps > 0)) return pts;
+  const keep = new Uint8Array(pts.length);
+  keep[0] = 1;
+  keep[pts.length - 1] = 1;
+  const stack = [[0, pts.length - 1]];
+  while (stack.length > 0) {
+    const [a, b] = stack.pop();
+    if (b - a < 2) continue;
+    const [ax, ay] = pts[a];
+    const [bx, by] = pts[b];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len = Math.hypot(dx, dy);
+    let maxD = -1;
+    let maxI = -1;
+    for (let i = a + 1; i < b; i++) {
+      const [px, py] = pts[i];
+      let d;
+      if (len < 1e-12) {
+        d = Math.hypot(px - ax, py - ay);
+      } else {
+        d = Math.abs(dx * (ay - py) - (ax - px) * dy) / len;
+      }
+      if (d > maxD) {
+        maxD = d;
+        maxI = i;
+      }
+    }
+    if (maxD > eps) {
+      keep[maxI] = 1;
+      stack.push([a, maxI], [maxI, b]);
+    }
+  }
+  const out = [];
+  for (let i = 0; i < pts.length; i++) if (keep[i]) out.push(pts[i]);
+  return out;
+}
+
 module.exports = {
   rotatePoint,
   rotatePoints,
@@ -1907,6 +2158,7 @@ module.exports = {
   polygonArea,
   minAreaRect,
   normDeg,
+  simplifyPolyline,
 };
 
 })(module);
@@ -2154,7 +2406,9 @@ __mods['parts'] = (function () { const module = { exports: {} };
  */
 
 const { parseDxf, writeDxf, transformEntity, sampleEntities } = __req('dxf');
-const { minAreaRect, bboxOfPoints, rotatePoints, convexHull, polygonArea } = __req('geometry');
+const {
+  minAreaRect, bboxOfPoints, rotatePoint, rotatePoints, convexHull, polygonArea, simplifyPolyline,
+} = __req('geometry');
 const { nestParts } = __req('nest');
 
 const SAMPLE_QUALITY = 4; // matches writeDxf flattening quality
@@ -2192,10 +2446,27 @@ function analyzePart(content) {
     throw new Error('Part nema površinu (geometrija je točka ili linija duljine 0).');
   }
 
-  const outline = rotatedPolys.map((poly) => decimate(
+  // Shape-preserving simplification (Douglas-Peucker, 0.05mm): corners and
+  // detail survive exactly; only redundant points on smooth runs are dropped.
+  const outline = rotatedPolys.map((poly) => simplifyPolyline(
     poly.map(([x, y]) => [round3(x - bb.minX), round3(y - bb.minY)]),
-    120,
+    0.05,
   ));
+
+  // Engraving text, normalized like the outline (for previews).
+  const texts = entities
+    .filter((e) => e.type === 'TEXT')
+    .slice(0, 50)
+    .map((t) => {
+      const [tx, ty] = rotatePoint(t.x, t.y, preRotDeg);
+      return {
+        x: round3(tx - bb.minX),
+        y: round3(ty - bb.minY),
+        h: round3(t.h || 5),
+        rot: round3(((t.rot || 0) + preRotDeg) % 360),
+        s: String(t.text || '').slice(0, 60),
+      };
+    });
 
   // Real-ish area: largest closed sampled loop, else convex hull area.
   let area = 0;
@@ -2220,6 +2491,7 @@ function analyzePart(content) {
     h: bb.h,
     area,
     outline,
+    texts,
     warnings,
     entityCount: entities.length,
   };
@@ -2229,15 +2501,6 @@ function round3(n) {
   return Math.round(n * 1000) / 1000;
 }
 
-function decimate(pts, maxPts) {
-  if (pts.length <= maxPts) return pts;
-  const out = [];
-  const step = (pts.length - 1) / (maxPts - 1);
-  for (let i = 0; i < maxPts; i++) {
-    out.push(pts[Math.round(i * step)]);
-  }
-  return out;
-}
 
 /**
  * Run the nesting and produce the sheet DXF plus preview data.
@@ -2282,11 +2545,15 @@ function generateSheet(opts) {
   // Cache per part: parsed entities + high-quality samples + per-orientation
   // data (rotated bbox min and transformed entities are per placement).
   const cache = {};
+  const layerColors = {};
   const getPart = (id) => {
     if (!cache[id]) {
       const p = parts.find((q) => q.id === id);
       if (!p) throw new Error('Nepoznat part id: ' + id);
-      const { entities } = parseDxf(p.content);
+      const { entities, layers } = parseDxf(p.content);
+      for (const [k, v] of Object.entries(layers || {})) {
+        if (!(k in layerColors)) layerColors[k] = v;
+      }
       const samples = sampleEntities(entities, SAMPLE_QUALITY);
       cache[id] = { part: p, entities, samples, orientations: {} };
     }
@@ -2332,9 +2599,9 @@ function generateSheet(opts) {
       rotDeg,
       dx,
       dy,
-      outline: or.rotated.map((poly) => decimate(
+      outline: or.rotated.map((poly) => simplifyPolyline(
         poly.map(([x, y]) => [round3(x + dx), round3(y + dy)]),
-        80,
+        0.1,
       )),
     });
   }
@@ -2366,7 +2633,7 @@ function generateSheet(opts) {
   });
 
   return {
-    dxf: outEntities.length > 0 ? writeDxf(outEntities) : null,
+    dxf: outEntities.length > 0 ? writeDxf(outEntities, { layerColors }) : null,
     placements,
     unplaced,
     placedCounts: nest.placedCounts,
@@ -2394,13 +2661,18 @@ function generateSheet(opts) {
 function buildSheetDxf(opts) {
   const { parts = [], placements = [], sheetW, sheetH, addFrame = false } = opts;
   const cache = {};
+  const layerColors = {};
   const getEntities = (id) => {
     if (!cache[id]) {
       const p = parts.find((q) => q.id === id);
       if (!p || typeof p.content !== 'string') {
         throw new Error('Part iz ove ploče više ne postoji u biblioteci.');
       }
-      cache[id] = parseDxf(p.content).entities;
+      const parsed = parseDxf(p.content);
+      for (const [k, v] of Object.entries(parsed.layers || {})) {
+        if (!(k in layerColors)) layerColors[k] = v;
+      }
+      cache[id] = parsed.entities;
     }
     return cache[id];
   };
@@ -2427,7 +2699,7 @@ function buildSheetDxf(opts) {
   if (outEntities.length === 0) {
     throw new Error('Ploča je prazna - nema ničega za zapisati.');
   }
-  return writeDxf(outEntities);
+  return writeDxf(outEntities, { layerColors });
 }
 
 module.exports = { analyzePart, generateSheet, buildSheetDxf };
@@ -2492,6 +2764,7 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
       h: Math.round(info.h * 1000) / 1000,
       area: Math.round(info.area * 1000) / 1000,
       outline: info.outline,
+      texts: info.texts,
       warnings: info.warnings,
       entityCount: info.entityCount,
       createdAt: new Date().toISOString(),
@@ -2766,7 +3039,7 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
     },
     pickExe: async () => null,
     pickDir: async () => null,
-    appInfo: async () => ({ version: '1.1.1 · web proba', dataDir: '' }),
+    appInfo: async () => ({ version: '1.2.0 · web proba', dataDir: '' }),
   };
 })();
 
@@ -2925,6 +3198,24 @@ function drawSheetEntry(canvas, entry) {
       ctx.moveTo(tx(poly[0][0]), ty(poly[0][1]));
       for (let i = 1; i < poly.length; i++) ctx.lineTo(tx(poly[i][0]), ty(poly[i][1]));
       ctx.stroke();
+    }
+    // Engraving text markings
+    const part = state.partsById[pl.id];
+    if (part && part.texts && part.texts.length) {
+      ctx.fillStyle = 'rgba(180, 195, 212, 0.85)';
+      for (const t of part.texts) {
+        const fontPx = (t.h || 5) * scale;
+        if (fontPx < 3) continue; // unreadable at this zoom
+        const x = pl.rotated ? (part.h - t.y) : t.x;
+        const y = pl.rotated ? t.x : t.y;
+        const rot = (t.rot || 0) + (pl.rotated ? 90 : 0);
+        ctx.save();
+        ctx.translate(tx(x + pl.x), ty(y + pl.y));
+        ctx.rotate(-(rot * Math.PI) / 180);
+        ctx.font = fontPx + 'px sans-serif';
+        ctx.fillText(t.s, 0, 0);
+        ctx.restore();
+      }
     }
   }
 }
@@ -3139,6 +3430,19 @@ function drawOutline(canvas, part, padPx) {
     }
     ctx.stroke();
   }
+  if (part.texts && part.texts.length) {
+    ctx.fillStyle = 'rgba(180, 195, 212, 0.9)';
+    for (const t of part.texts) {
+      const fontPx = (t.h || 5) * scale;
+      if (fontPx < 3) continue;
+      ctx.save();
+      ctx.translate(ox + t.x * scale, H - oy - t.y * scale);
+      ctx.rotate(-((t.rot || 0) * Math.PI) / 180);
+      ctx.font = fontPx + 'px sans-serif';
+      ctx.fillText(t.s, 0, 0);
+      ctx.restore();
+    }
+  }
 }
 
 function showPartModal(part) {
@@ -3177,6 +3481,7 @@ function renderParts() {
 function partRow(part) {
   const row = el('div', 'part-row' + (part.enabled ? '' : ' disabled'));
 
+  const cellMain = el('div', 'part-cell');
   const thumb = document.createElement('canvas');
   thumb.className = 'part-thumb';
   thumb.width = 84;
@@ -3184,7 +3489,7 @@ function partRow(part) {
   thumb.title = 'Klikni za veliki pregled';
   drawOutline(thumb, part);
   thumb.addEventListener('click', () => showPartModal(part));
-  row.appendChild(thumb);
+  cellMain.appendChild(thumb);
 
   const main = el('div', 'part-main');
   const nameInput = document.createElement('input');
@@ -3201,7 +3506,8 @@ function partRow(part) {
     dims.appendChild(wlink);
   }
   main.appendChild(dims);
-  row.appendChild(main);
+  cellMain.appendChild(main);
+  row.appendChild(cellMain);
 
   // Priority
   const prio = el('label', 'part-field');
@@ -3423,6 +3729,7 @@ async function init() {
     $('rowScicut').hidden = true;
     $('rowOutput').hidden = true;
     $('rowAutoOpen').hidden = true;
+    $('grpLaser').hidden = true;
     $('btnOpen').textContent = '💾 PREUZMI DXF';
     $('btnSave').hidden = true;
   }

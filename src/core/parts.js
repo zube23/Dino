@@ -7,7 +7,9 @@
  */
 
 const { parseDxf, writeDxf, transformEntity, sampleEntities } = require('./dxf');
-const { minAreaRect, bboxOfPoints, rotatePoints, convexHull, polygonArea } = require('./geometry');
+const {
+  minAreaRect, bboxOfPoints, rotatePoint, rotatePoints, convexHull, polygonArea, simplifyPolyline,
+} = require('./geometry');
 const { nestParts } = require('./nest');
 
 const SAMPLE_QUALITY = 4; // matches writeDxf flattening quality
@@ -45,10 +47,27 @@ function analyzePart(content) {
     throw new Error('Part nema površinu (geometrija je točka ili linija duljine 0).');
   }
 
-  const outline = rotatedPolys.map((poly) => decimate(
+  // Shape-preserving simplification (Douglas-Peucker, 0.05mm): corners and
+  // detail survive exactly; only redundant points on smooth runs are dropped.
+  const outline = rotatedPolys.map((poly) => simplifyPolyline(
     poly.map(([x, y]) => [round3(x - bb.minX), round3(y - bb.minY)]),
-    120,
+    0.05,
   ));
+
+  // Engraving text, normalized like the outline (for previews).
+  const texts = entities
+    .filter((e) => e.type === 'TEXT')
+    .slice(0, 50)
+    .map((t) => {
+      const [tx, ty] = rotatePoint(t.x, t.y, preRotDeg);
+      return {
+        x: round3(tx - bb.minX),
+        y: round3(ty - bb.minY),
+        h: round3(t.h || 5),
+        rot: round3(((t.rot || 0) + preRotDeg) % 360),
+        s: String(t.text || '').slice(0, 60),
+      };
+    });
 
   // Real-ish area: largest closed sampled loop, else convex hull area.
   let area = 0;
@@ -73,6 +92,7 @@ function analyzePart(content) {
     h: bb.h,
     area,
     outline,
+    texts,
     warnings,
     entityCount: entities.length,
   };
@@ -82,15 +102,6 @@ function round3(n) {
   return Math.round(n * 1000) / 1000;
 }
 
-function decimate(pts, maxPts) {
-  if (pts.length <= maxPts) return pts;
-  const out = [];
-  const step = (pts.length - 1) / (maxPts - 1);
-  for (let i = 0; i < maxPts; i++) {
-    out.push(pts[Math.round(i * step)]);
-  }
-  return out;
-}
 
 /**
  * Run the nesting and produce the sheet DXF plus preview data.
@@ -135,11 +146,15 @@ function generateSheet(opts) {
   // Cache per part: parsed entities + high-quality samples + per-orientation
   // data (rotated bbox min and transformed entities are per placement).
   const cache = {};
+  const layerColors = {};
   const getPart = (id) => {
     if (!cache[id]) {
       const p = parts.find((q) => q.id === id);
       if (!p) throw new Error('Nepoznat part id: ' + id);
-      const { entities } = parseDxf(p.content);
+      const { entities, layers } = parseDxf(p.content);
+      for (const [k, v] of Object.entries(layers || {})) {
+        if (!(k in layerColors)) layerColors[k] = v;
+      }
       const samples = sampleEntities(entities, SAMPLE_QUALITY);
       cache[id] = { part: p, entities, samples, orientations: {} };
     }
@@ -185,9 +200,9 @@ function generateSheet(opts) {
       rotDeg,
       dx,
       dy,
-      outline: or.rotated.map((poly) => decimate(
+      outline: or.rotated.map((poly) => simplifyPolyline(
         poly.map(([x, y]) => [round3(x + dx), round3(y + dy)]),
-        80,
+        0.1,
       )),
     });
   }
@@ -219,7 +234,7 @@ function generateSheet(opts) {
   });
 
   return {
-    dxf: outEntities.length > 0 ? writeDxf(outEntities) : null,
+    dxf: outEntities.length > 0 ? writeDxf(outEntities, { layerColors }) : null,
     placements,
     unplaced,
     placedCounts: nest.placedCounts,
@@ -247,13 +262,18 @@ function generateSheet(opts) {
 function buildSheetDxf(opts) {
   const { parts = [], placements = [], sheetW, sheetH, addFrame = false } = opts;
   const cache = {};
+  const layerColors = {};
   const getEntities = (id) => {
     if (!cache[id]) {
       const p = parts.find((q) => q.id === id);
       if (!p || typeof p.content !== 'string') {
         throw new Error('Part iz ove ploče više ne postoji u biblioteci.');
       }
-      cache[id] = parseDxf(p.content).entities;
+      const parsed = parseDxf(p.content);
+      for (const [k, v] of Object.entries(parsed.layers || {})) {
+        if (!(k in layerColors)) layerColors[k] = v;
+      }
+      cache[id] = parsed.entities;
     }
     return cache[id];
   };
@@ -280,7 +300,7 @@ function buildSheetDxf(opts) {
   if (outEntities.length === 0) {
     throw new Error('Ploča je prazna - nema ničega za zapisati.');
   }
-  return writeDxf(outEntities);
+  return writeDxf(outEntities, { layerColors });
 }
 
 module.exports = { analyzePart, generateSheet, buildSheetDxf };

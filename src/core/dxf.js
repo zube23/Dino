@@ -29,6 +29,19 @@
 
 const DEG = Math.PI / 180;
 
+/**
+ * Segment count for an arc so the chord (sagitta) error stays below a
+ * tolerance that scales with `quality`: 0.2mm at preview quality 1,
+ * 0.05mm at analysis quality 4, 0.025mm at write quality 8. This keeps a
+ * 10mm hole and a 2m radius contour equally faithful.
+ */
+function arcSegments(sweepRad, r, quality) {
+  const tol = 0.2 / Math.max(0.25, quality);
+  if (!(r > tol)) return 8;
+  const step = 2 * Math.acos(Math.max(-1, 1 - tol / r));
+  return Math.min(4096, Math.max(8, Math.ceil(Math.abs(sweepRad) / step)));
+}
+
 // ---------------------------------------------------------------------------
 // Tokenizing
 // ---------------------------------------------------------------------------
@@ -84,6 +97,7 @@ function parseDxf(text) {
   const pairs = parsePairs(text);
   const warnings = [];
   const blocks = {}; // name -> {baseX, baseY, entities}
+  const layers = {}; // name -> ACI color from the LAYER table
   let entities = [];
   let insunits = 0;
 
@@ -115,6 +129,23 @@ function parseDxf(text) {
           }
           i++;
         }
+      } else if (section === 'TABLES') {
+        // Layer colors: CAM programs map them to cutting technology.
+        while (i < pairs.length && !(pairs[i].code === 0 && pairs[i].value === 'ENDSEC')) {
+          if (pairs[i].code === 0 && pairs[i].value === 'LAYER') {
+            i++;
+            let lname = null;
+            let lcolor = null;
+            while (i < pairs.length && pairs[i].code !== 0) {
+              if (pairs[i].code === 2) lname = pairs[i].value;
+              else if (pairs[i].code === 62) lcolor = parseInt(pairs[i].value, 10);
+              i++;
+            }
+            if (lname && Number.isFinite(lcolor) && lcolor !== 0) layers[lname] = Math.abs(lcolor);
+          } else {
+            i++;
+          }
+        }
       } else {
         // Skip section
         while (i < pairs.length && !(pairs[i].code === 0 && pairs[i].value === 'ENDSEC')) i++;
@@ -137,7 +168,7 @@ function parseDxf(text) {
     }
   }
 
-  // Separate HATCH fills from cut geometry.
+  // Separate HATCH fills and TEXT annotations from cut geometry.
   let boundaries = [];
   const takeHatches = (list) => {
     for (const h of list.filter((e) => e.type === 'HATCH')) {
@@ -147,6 +178,8 @@ function parseDxf(text) {
   };
   const hadHatch = expanded.some((e) => e.type === 'HATCH');
   expanded = takeHatches(expanded);
+  let texts = expanded.filter((e) => e.type === 'TEXT');
+  expanded = expanded.filter((e) => e.type !== 'TEXT');
 
   // Some exporters leave ENTITIES empty and put the drawing inside blocks
   // (e.g. *Model_Space / $MODEL_SPACE). Fall back to the block contents -
@@ -191,6 +224,8 @@ function parseDxf(text) {
       }
     }
     expanded = takeHatches(expanded);
+    texts = texts.concat(expanded.filter((e) => e.type === 'TEXT'));
+    expanded = expanded.filter((e) => e.type !== 'TEXT');
     if (expanded.length > 0 || boundaries.length > 0) {
       warnings.push('Geometrija učitana iz blokova (glavni popis entiteta bio je prazan).');
     }
@@ -234,6 +269,32 @@ function parseDxf(text) {
     }
   }
 
+  // TEXT that lies on the cut geometry is an engraving mark and is kept;
+  // text outside it (title blocks, dimensions) must not pollute the part.
+  if (texts.length > 0 && expanded.length > 0) {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const poly of sampleEntities(expanded, 1)) {
+      for (const [x, y] of poly) {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+    const m = Math.max(2, 0.05 * Math.max(maxX - minX, maxY - minY));
+    const kept = texts.filter((t) => t.x >= minX - m && t.x <= maxX + m
+      && t.y >= minY - m && t.y <= maxY + m);
+    if (kept.length < texts.length) {
+      warnings.push('Preskočen tekst izvan konture (' + (texts.length - kept.length) + ' kom - natpis/kota, ne gravura).');
+    }
+    expanded = expanded.concat(kept);
+  } else if (texts.length > 0) {
+    warnings.push('Preskočen tekst (' + texts.length + ' kom) - u datoteci nema geometrije uz koju bi se gravirao.');
+  }
+
   // Convert to millimeters when the file declares other units.
   const unitScale = UNIT_TO_MM[insunits] || 1;
   if (unitScale !== 1 && expanded.length > 0) {
@@ -241,7 +302,7 @@ function parseDxf(text) {
     warnings.push('Mjere pretvorene u milimetre (×' + unitScale + ').');
   }
 
-  return { entities: expanded, warnings };
+  return { entities: expanded, warnings, layers };
 }
 
 function parseBlocksSection(pairs, i, blocks, warnings) {
@@ -299,7 +360,7 @@ function parseEntityList(pairs, i, endMarker, warnings) {
 }
 
 const SKIPPED_TYPES = new Set([
-  'TEXT', 'MTEXT', 'DIMENSION', 'SOLID', 'ATTRIB', 'ATTDEF',
+  'DIMENSION', 'SOLID', 'ATTRIB', 'ATTDEF',
   'LEADER', 'MLEADER', 'WIPEOUT', 'IMAGE', 'VIEWPORT', 'XLINE', 'RAY',
   '3DFACE', 'REGION', 'BODY', 'TRACE', 'TOLERANCE', 'OLE2FRAME', 'ACAD_PROXY_ENTITY',
 ]);
@@ -437,18 +498,81 @@ function parseEntity(pairs, i, warnings) {
   const ocsX = num(get(210, 0));
   const ocsY = num(get(220, 0));
   const ocsZ = num(get(230, 1));
-  const ocs = (entity) => applyOcs(entity, ocsX, ocsY, ocsZ, warnings);
+  // ACI color (62): CypCut and friends map colors/layers to cut technology,
+  // so it must survive the round trip. 0 (ByBlock) and 256 (ByLayer) are
+  // defaults and stay implicit.
+  const colorRaw = get(62, null);
+  const entColor = colorRaw === null ? undefined : parseInt(colorRaw, 10);
+  const stamp = (entity) => {
+    if (entity && Number.isFinite(entColor) && entColor !== 0 && entColor !== 256) {
+      entity.color = entColor;
+    }
+    return entity;
+  };
+  const ocs = (entity) => applyOcs(stamp(entity), ocsX, ocsY, ocsZ, warnings);
 
   switch (type) {
     case 'LINE':
       return {
-        entity: {
+        entity: stamp({
           type: 'LINE', layer,
           x1: num(get(10, 0)), y1: num(get(20, 0)),
           x2: num(get(11, 0)), y2: num(get(21, 0)),
-        },
+        }),
         next: i,
       };
+    case 'TEXT': {
+      // Text on the part is an engraving/marking - keep it so the output in
+      // CypCut looks like the original drawing. (Filtered later if it lies
+      // outside the cut geometry - then it is annotation, not marking.)
+      const halign = parseInt(get(72, '0'), 10) || 0;
+      const valign = parseInt(get(73, '0'), 10) || 0;
+      const ax = get(11, null);
+      const ay = get(21, null);
+      const useAlign = (halign !== 0 || valign !== 0) && ax !== null && ay !== null;
+      return {
+        entity: stamp({
+          type: 'TEXT', layer,
+          x: useAlign ? num(ax) : num(get(10, 0)),
+          y: useAlign ? num(ay) : num(get(20, 0)),
+          h: num(get(40, 5)),
+          rot: num(get(50, 0)),
+          text: String(get(1, '')),
+        }),
+        next: i,
+      };
+    }
+    case 'MTEXT': {
+      // Reduce MTEXT to plain single-style text (formatting codes stripped).
+      let s = '';
+      for (const c of codes) {
+        if (c.code === 3) s += c.value;
+      }
+      s += String(get(1, ''));
+      s = s.replace(/\\\\/g, '\u0001')
+        .replace(/\\P/g, ' ')
+        .replace(/\\[A-Za-z][^;{}\\]*;/g, '')
+        .replace(/[{}]/g, '')
+        .replace(/\u0001/g, '\\');
+      let rot = num(get(50, 0));
+      const dirX = get(11, null);
+      const dirY = get(21, null);
+      if (dirX !== null && dirY !== null) {
+        rot = Math.atan2(num(dirY), num(dirX)) / DEG;
+      }
+      if (s.trim() !== '') warnings.push('MTEXT pretvoren u jednostavni tekst.');
+      return {
+        entity: s.trim() === '' ? null : stamp({
+          type: 'TEXT', layer,
+          x: num(get(10, 0)),
+          y: num(get(20, 0)),
+          h: num(get(40, 5)),
+          rot,
+          text: s,
+        }),
+        next: i,
+      };
+    }
     case 'CIRCLE':
       return {
         entity: ocs({
@@ -822,6 +946,14 @@ function transformEntity(e, { rotDeg = 0, dx = 0, dy = 0, scale = 1 }) {
       out.boundaries = (e.boundaries || []).map((b) => transformEntity(b, { rotDeg, dx, dy, scale }));
       return out;
     }
+    case 'TEXT': {
+      const p = xf(e.x, e.y);
+      out.x = p.x;
+      out.y = p.y;
+      out.h = e.h * scale;
+      out.rot = norm360((e.rot || 0) + rotDeg);
+      return out;
+    }
     default:
       throw new Error('transformEntity: unknown entity type ' + e.type);
   }
@@ -858,7 +990,7 @@ function sampleEntity(e, quality = 1) {
     case 'LINE':
       return [[[e.x1, e.y1], [e.x2, e.y2]]];
     case 'CIRCLE': {
-      const n = Math.max(16, Math.round(32 * q));
+      const n = arcSegments(Math.PI * 2, e.r, q);
       const pts = [];
       for (let i = 0; i <= n; i++) {
         const t = (i / n) * Math.PI * 2;
@@ -871,7 +1003,7 @@ function sampleEntity(e, quality = 1) {
       let a2 = e.a2 * DEG;
       if (a2 <= a1 + 1e-12) a2 += Math.PI * 2;
       const sweep = a2 - a1;
-      const n = Math.max(8, Math.round((sweep / (Math.PI * 2)) * 48 * q));
+      const n = arcSegments(sweep, e.r, q);
       const pts = [];
       for (let i = 0; i <= n; i++) {
         const t = a1 + (sweep * i) / n;
@@ -905,7 +1037,9 @@ function sampleEntity(e, quality = 1) {
       const major = Math.hypot(e.mx, e.my);
       const ux = e.mx; const uy = e.my;
       const vx = -uy * e.ratio; const vy = ux * e.ratio;
-      const n = Math.min(1024, Math.max(24, Math.round(((t2 - t1) / (Math.PI * 2)) * 64 * q * Math.max(1, major / 50))));
+      // Bound the chord error by the tightest curvature (b^2/a at the ends).
+      const nMajor = arcSegments(t2 - t1, major, q);
+      const n = Math.min(4096, Math.max(24, Math.round(nMajor * Math.max(1, 1 / Math.max(0.05, e.ratio)))));
       const pts = [];
       for (let i = 0; i <= n; i++) {
         const t = t1 + ((t2 - t1) * i) / n;
@@ -947,7 +1081,7 @@ function bulgeArcPoints(v1, v2, bulge, quality = 1) {
   const cx = mx + px * h * side;
   const cy = my + py * h * side;
   const a1 = Math.atan2(v1.y - cy, v1.x - cx);
-  const n = Math.max(4, Math.round((Math.abs(theta) / (Math.PI * 2)) * 48 * Math.max(0.25, quality)));
+  const n = arcSegments(Math.abs(theta), r, quality);
   const pts = [];
   for (let i = 0; i <= n; i++) {
     const t = a1 + (theta * i) / n;
@@ -994,7 +1128,7 @@ function sampleSpline(e, quality = 1) {
 
   const tMin = knots[degree];
   const tMax = knots[knots.length - 1 - degree];
-  const n = Math.min(2048, Math.max(24, Math.round(ctrl.length * 8 * Math.max(0.25, quality))));
+  const n = Math.min(4096, Math.max(32, Math.round(ctrl.length * 16 * Math.max(0.25, quality))));
   const pts = [];
   for (let i = 0; i <= n; i++) {
     const t = tMin + ((tMax - tMin) * i) / n;
@@ -1108,14 +1242,14 @@ function writeDxf(entities, opts = {}) {
   const flatten = [];
   for (const e of entities) {
     if (e.type === 'SPLINE' || e.type === 'ELLIPSE') {
-      const polys = sampleEntity(e, 4);
+      const polys = sampleEntity(e, 8); // chord error under ~0.025mm
       for (const pts of polys) {
         if (pts.length < 2) continue;
         const first = pts[0];
         const last = pts[pts.length - 1];
         const closed = Math.hypot(first[0] - last[0], first[1] - last[1]) < 1e-6;
         const verts = (closed ? pts.slice(0, -1) : pts).map((p) => ({ x: p[0], y: p[1], bulge: 0 }));
-        flatten.push({ type: 'POLYLINE', layer: e.layer || '0', closed, verts });
+        flatten.push({ type: 'POLYLINE', layer: e.layer || '0', closed, verts, color: e.color });
       }
     } else {
       flatten.push(e);
@@ -1148,14 +1282,15 @@ function writeDxf(entities, opts = {}) {
   push(9, '$EXTMAX'); push(10, fmt(maxX)); push(20, fmt(maxY)); push(30, 0);
   push(0, 'ENDSEC');
 
-  // TABLES (layers only)
+  // TABLES (layers with their original colors - CAM maps them to technology)
+  const layerColors = opts.layerColors || {};
   push(0, 'SECTION'); push(2, 'TABLES');
   push(0, 'TABLE'); push(2, 'LAYER'); push(70, layers.size);
   for (const name of layers) {
     push(0, 'LAYER');
     push(2, name);
     push(70, 0);
-    push(62, 7);
+    push(62, Number.isFinite(layerColors[name]) ? layerColors[name] : 7);
     push(6, 'CONTINUOUS');
   }
   push(0, 'ENDTAB');
@@ -1163,16 +1298,26 @@ function writeDxf(entities, opts = {}) {
 
   // ENTITIES
   push(0, 'SECTION'); push(2, 'ENTITIES');
+  const pushColor = (e) => {
+    if (Number.isFinite(e.color) && e.color !== 0 && e.color !== 256) push(62, e.color);
+  };
   for (const e of flatten) {
     const layer = String(e.layer || '0');
     switch (e.type) {
       case 'LINE':
-        push(0, 'LINE'); push(8, layer);
+        push(0, 'LINE'); push(8, layer); pushColor(e);
         push(10, fmt(e.x1)); push(20, fmt(e.y1)); push(30, 0);
         push(11, fmt(e.x2)); push(21, fmt(e.y2)); push(31, 0);
         break;
+      case 'TEXT':
+        push(0, 'TEXT'); push(8, layer); pushColor(e);
+        push(10, fmt(e.x)); push(20, fmt(e.y)); push(30, 0);
+        push(40, fmt(e.h));
+        push(1, String(e.text || ''));
+        if (e.rot && Math.abs(e.rot) > 1e-9) push(50, fmt(e.rot));
+        break;
       case 'CIRCLE':
-        push(0, 'CIRCLE'); push(8, layer);
+        push(0, 'CIRCLE'); push(8, layer); pushColor(e);
         push(10, fmt(e.cx)); push(20, fmt(e.cy)); push(30, 0);
         push(40, fmt(e.r));
         break;
@@ -1181,11 +1326,11 @@ function writeDxf(entities, opts = {}) {
         // rendered as nothing by most CAM programs.
         const sweep = arcSweep(e.a1, e.a2);
         if (sweep >= 360 - 1e-9) {
-          push(0, 'CIRCLE'); push(8, layer);
+          push(0, 'CIRCLE'); push(8, layer); pushColor(e);
           push(10, fmt(e.cx)); push(20, fmt(e.cy)); push(30, 0);
           push(40, fmt(e.r));
         } else {
-          push(0, 'ARC'); push(8, layer);
+          push(0, 'ARC'); push(8, layer); pushColor(e);
           push(10, fmt(e.cx)); push(20, fmt(e.cy)); push(30, 0);
           push(40, fmt(e.r));
           push(50, fmt(norm360(e.a1))); push(51, fmt(norm360(e.a2)));
@@ -1193,7 +1338,7 @@ function writeDxf(entities, opts = {}) {
         break;
       }
       case 'POLYLINE':
-        push(0, 'POLYLINE'); push(8, layer);
+        push(0, 'POLYLINE'); push(8, layer); pushColor(e);
         push(66, 1); push(70, e.closed ? 1 : 0);
         push(10, 0); push(20, 0); push(30, 0);
         for (const v of e.verts) {
@@ -1204,7 +1349,7 @@ function writeDxf(entities, opts = {}) {
         push(0, 'SEQEND'); push(8, layer);
         break;
       case 'POINT':
-        push(0, 'POINT'); push(8, layer);
+        push(0, 'POINT'); push(8, layer); pushColor(e);
         push(10, fmt(e.x)); push(20, fmt(e.y)); push(30, 0);
         break;
       default:

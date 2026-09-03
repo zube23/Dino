@@ -112,6 +112,51 @@ function normDeg(a) {
   return r;
 }
 
+/**
+ * Douglas-Peucker polyline simplification: removes points whose removal
+ * moves the curve by less than `eps`. Unlike every-Nth decimation this
+ * preserves corners and detail exactly, dropping only redundant points on
+ * straight-ish runs.
+ */
+function simplifyPolyline(pts, eps) {
+  if (!Array.isArray(pts) || pts.length <= 2 || !(eps > 0)) return pts;
+  const keep = new Uint8Array(pts.length);
+  keep[0] = 1;
+  keep[pts.length - 1] = 1;
+  const stack = [[0, pts.length - 1]];
+  while (stack.length > 0) {
+    const [a, b] = stack.pop();
+    if (b - a < 2) continue;
+    const [ax, ay] = pts[a];
+    const [bx, by] = pts[b];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len = Math.hypot(dx, dy);
+    let maxD = -1;
+    let maxI = -1;
+    for (let i = a + 1; i < b; i++) {
+      const [px, py] = pts[i];
+      let d;
+      if (len < 1e-12) {
+        d = Math.hypot(px - ax, py - ay);
+      } else {
+        d = Math.abs(dx * (ay - py) - (ax - px) * dy) / len;
+      }
+      if (d > maxD) {
+        maxD = d;
+        maxI = i;
+      }
+    }
+    if (maxD > eps) {
+      keep[maxI] = 1;
+      stack.push([a, maxI], [maxI, b]);
+    }
+  }
+  const out = [];
+  for (let i = 0; i < pts.length; i++) if (keep[i]) out.push(pts[i]);
+  return out;
+}
+
 module.exports = {
   rotatePoint,
   rotatePoints,
@@ -120,4 +165,5 @@ module.exports = {
   polygonArea,
   minAreaRect,
   normDeg,
+  simplifyPolyline,
 };

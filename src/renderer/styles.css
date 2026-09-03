@@ -61,6 +61,18 @@ html, body {
 
 .view { padding: 14px; }
 
+.mcard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.steps {
+  color: var(--muted);
+  font-size: 13px;
+  letter-spacing: 0.3px;
+}
+.steps b { color: var(--accent2); }
+
 /* ---------------- machine view ---------------- */
 .machine {
   max-width: 1160px;
@@ -246,10 +258,20 @@ html, body {
 }
 .drop.dragover { border-color: var(--accent); color: var(--accent); background: rgba(255,122,26,0.06); }
 
-.parts { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.parts { display: flex; flex-direction: column; gap: 8px; }
+.parts-head {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) 110px 120px 110px 64px 40px;
+  gap: 10px;
+  padding: 10px 10px 4px;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
 .part-row {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) 110px 120px 110px 64px 40px;
   gap: 10px;
   align-items: center;
   background: var(--bg2);
@@ -257,6 +279,9 @@ html, body {
   border-radius: 10px;
   padding: 8px 10px;
 }
+.part-cell { display: flex; gap: 10px; align-items: center; min-width: 0; }
+/* Wide layout has a header row - per-field labels would be redundant. */
+.part-field > span { display: none; }
 .part-row.disabled { opacity: 0.45; }
 .part-thumb {
   width: 84px;
@@ -279,7 +304,7 @@ html, body {
 .part-main input:hover, .part-main input:focus { border-color: var(--line); background: var(--bg); outline: none; }
 .part-dims { color: var(--muted); font-size: 12px; }
 .part-dims .link { color: var(--warn); cursor: pointer; text-decoration: underline; }
-.part-field { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--muted); width: 108px; flex: 0 0 auto; }
+.part-field { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--muted); min-width: 0; }
 .part-field input, .part-field select {
   font-size: 15px;
   padding: 5px 7px;
@@ -294,11 +319,23 @@ html, body {
 
 .empty { color: var(--muted); padding: 10px 4px; }
 
-.settings-grid { display: flex; flex-direction: column; gap: 12px; max-width: 720px; }
-.settings-grid label { display: flex; flex-direction: column; gap: 5px; color: var(--muted); font-size: 13px; }
-.settings-grid label.check { flex-direction: row; align-items: center; font-size: 15px; color: var(--text); gap: 9px; flex-wrap: wrap; }
-.settings-grid label.check em { color: var(--muted); font-style: normal; font-size: 12px; }
-.settings-grid input[type="text"] {
+.settings-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 18px;
+}
+.sgroup { display: flex; flex-direction: column; gap: 12px; }
+.sgroup h3 {
+  margin: 0 0 2px;
+  font-size: 13px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--accent2);
+}
+.sgroup label { display: flex; flex-direction: column; gap: 5px; color: var(--muted); font-size: 13px; }
+.sgroup label.check { flex-direction: row; align-items: center; font-size: 15px; color: var(--text); gap: 9px; flex-wrap: wrap; }
+.sgroup label.check em { color: var(--muted); font-style: normal; font-size: 12px; }
+.sgroup input[type="text"] {
   font-size: 15px;
   padding: 8px 10px;
   background: var(--bg);
@@ -307,7 +344,7 @@ html, body {
   border-radius: 8px;
   width: 100%;
 }
-.settings-grid input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent); }
+.sgroup input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent); }
 .pathrow { display: flex; gap: 8px; }
 .pathrow input { flex: 1; }
 
@@ -393,6 +430,13 @@ html, body {
 .demo-note a { color: var(--accent2); font-weight: 700; }
 
 /* ---------------- narrow window (beside CypCut) ---------------- */
+@media (max-width: 700px) {
+  .parts-head { display: none; }
+  .part-row { display: flex; flex-wrap: wrap; }
+  .part-cell { flex: 1 1 100%; }
+  .part-field { width: 104px; }
+  .part-field > span { display: block; }
+}
 @media (max-width: 560px) {
   .view { padding: 10px; }
   .topbar { gap: 8px; padding: 6px 10px; }
@@ -400,6 +444,7 @@ html, body {
   .tab { font-size: 13px; padding: 6px 12px; }
   .dims { gap: 8px; }
   .generate { letter-spacing: 1px; }
+  .steps { font-size: 12px; }
   .cards { grid-template-columns: 1fr; }
   .history-row .hdate, .history-row .hdims { width: auto; }
 }

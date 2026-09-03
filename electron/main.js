@@ -226,6 +226,7 @@ ipcMain.handle('parts:add', (ev, files) => {
         h: Math.round(info.h * 1000) / 1000,
         area: Math.round(info.area * 1000) / 1000,
         outline: info.outline,
+        texts: info.texts,
         warnings: info.warnings,
         entityCount: info.entityCount,
         createdAt: new Date().toISOString(),

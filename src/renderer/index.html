@@ -20,18 +20,20 @@
   <!-- ======================= STROJ ======================= -->
   <main id="viewStroj" class="view">
     <div class="machine">
-      <div class="dims">
-        <label class="dim">
-          <span>DULJINA (mm)</span>
-          <input id="inWidth" type="text" inputmode="decimal" placeholder="2000" autocomplete="off">
-        </label>
-        <label class="dim">
-          <span>ŠIRINA (mm)</span>
-          <input id="inHeight" type="text" inputmode="decimal" placeholder="1000" autocomplete="off">
-        </label>
-      </div>
-
-      <button id="btnGenerate" class="generate">GENERIRAJ</button>
+      <section class="card mcard">
+        <div class="steps"><b>1.</b> Izmjeri lim i upiši mjere &nbsp;·&nbsp; <b>2.</b> GENERIRAJ ili uzmi gotovu ponudu &nbsp;·&nbsp; <b>3.</b> Povuci karticu u CypCut</div>
+        <div class="dims">
+          <label class="dim">
+            <span>DULJINA (mm)</span>
+            <input id="inWidth" type="text" inputmode="decimal" placeholder="2000" autocomplete="off">
+          </label>
+          <label class="dim">
+            <span>ŠIRINA (mm)</span>
+            <input id="inHeight" type="text" inputmode="decimal" placeholder="1000" autocomplete="off">
+          </label>
+        </div>
+        <button id="btnGenerate" class="generate">GENERIRAJ</button>
+      </section>
 
       <div id="genStatus" class="status" hidden></div>
       <div id="genWarn" class="warn" hidden></div>
@@ -64,36 +66,50 @@
           <input id="fileInput" type="file" accept=".dxf,.DXF" multiple hidden>
         </div>
         <div id="importErrors" class="warn" hidden></div>
+        <div class="parts-head">
+          <div class="ph-part">Part (klik na sličicu = veliki pregled)</div>
+          <div>Prioritet</div>
+          <div>Način</div>
+          <div>Komada</div>
+          <div>Uklj.</div>
+          <div></div>
+        </div>
         <div id="partsList" class="parts"></div>
       </section>
 
       <section class="card">
         <h2>Postavke</h2>
-        <div class="settings-grid">
-          <label>Razmak između partova (mm)
-            <input id="setGap" type="text" inputmode="decimal">
-          </label>
-          <label>Rub ploče (mm)
-            <input id="setMargin" type="text" inputmode="decimal">
-          </label>
-          <label>Ponude ploča sličnih dimenzija — tolerancija (mm)
-            <input id="setHistTol" type="text" inputmode="decimal">
-          </label>
-          <label class="check"><input id="setRotate" type="checkbox"> Dozvoli rotaciju 90° <em>(zrcaljenje je uvijek zabranjeno)</em></label>
-          <label class="check" id="rowAutoOpen"><input id="setAutoOpen" type="checkbox"> Nakon generiranja odmah otvori u CypCut-u</label>
-          <label class="check"><input id="setFrame" type="checkbox"> Dodaj okvir ploče u DXF (layer PLOCA)</label>
-          <label id="rowScicut">Program lasera — CypCut (.exe)
-            <span class="pathrow">
-              <input id="setScicut" type="text" placeholder="prazno = zadana aplikacija za .dxf">
-              <button id="btnPickExe" class="btn small">…</button>
-            </span>
-          </label>
-          <label id="rowOutput">Zadana mapa za "Spremi DXF"
-            <span class="pathrow">
-              <input id="setOutput" type="text" placeholder="prazno = Dokumenti">
-              <button id="btnPickDir" class="btn small">…</button>
-            </span>
-          </label>
+        <div class="settings-cols">
+          <div class="sgroup">
+            <h3>Slaganje na ploču</h3>
+            <label>Razmak između partova (mm)
+              <input id="setGap" type="text" inputmode="decimal">
+            </label>
+            <label>Rub ploče (mm)
+              <input id="setMargin" type="text" inputmode="decimal">
+            </label>
+            <label>Ponude sličnih ploča — tolerancija (mm)
+              <input id="setHistTol" type="text" inputmode="decimal">
+            </label>
+            <label class="check"><input id="setRotate" type="checkbox"> Dozvoli rotaciju 90° <em>(zrcaljenje je uvijek zabranjeno)</em></label>
+            <label class="check"><input id="setFrame" type="checkbox"> Dodaj okvir ploče u DXF (layer PLOCA)</label>
+          </div>
+          <div class="sgroup" id="grpLaser">
+            <h3>Program lasera</h3>
+            <label class="check" id="rowAutoOpen"><input id="setAutoOpen" type="checkbox"> Nakon generiranja odmah otvori u CypCut-u</label>
+            <label id="rowScicut">CypCut program (.exe)
+              <span class="pathrow">
+                <input id="setScicut" type="text" placeholder="prazno = zadana aplikacija za .dxf">
+                <button id="btnPickExe" class="btn small">…</button>
+              </span>
+            </label>
+            <label id="rowOutput">Zadana mapa za "Spremi DXF"
+              <span class="pathrow">
+                <input id="setOutput" type="text" placeholder="prazno = Dokumenti">
+                <button id="btnPickDir" class="btn small">…</button>
+              </span>
+            </label>
+          </div>
         </div>
       </section>
 

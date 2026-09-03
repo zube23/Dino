@@ -55,7 +55,8 @@ jobs:
           body: |
             DinoNest za Windows — offline nesting program za laserski rez.
 
-            - **DinoNest-Setup-*.exe** — installer (preporučeno): pokrenite i slijedite korake.
-            - **DinoNest-Portable-*.exe** — radi bez instalacije, samo pokrenite.
+            - **DinoNest-Setup-*.exe** — installer (preporučeno): radi na 32-bitnom i 64-bitnom Windowsu, uključujući **Windows 7 SP1**.
+            - **DinoNest-Portable-*-ia32.exe** — bez instalacije, 32-bitni Windows.
+            - **DinoNest-Portable-*-x64.exe** — bez instalacije, 64-bitni Windows.
 
             Prebacite datoteku na USB i pokrenite na računalu lasera. Internet nije potreban.

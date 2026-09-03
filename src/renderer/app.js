@@ -154,6 +154,24 @@ function drawSheetEntry(canvas, entry) {
       for (let i = 1; i < poly.length; i++) ctx.lineTo(tx(poly[i][0]), ty(poly[i][1]));
       ctx.stroke();
     }
+    // Engraving text markings
+    const part = state.partsById[pl.id];
+    if (part && part.texts && part.texts.length) {
+      ctx.fillStyle = 'rgba(180, 195, 212, 0.85)';
+      for (const t of part.texts) {
+        const fontPx = (t.h || 5) * scale;
+        if (fontPx < 3) continue; // unreadable at this zoom
+        const x = pl.rotated ? (part.h - t.y) : t.x;
+        const y = pl.rotated ? t.x : t.y;
+        const rot = (t.rot || 0) + (pl.rotated ? 90 : 0);
+        ctx.save();
+        ctx.translate(tx(x + pl.x), ty(y + pl.y));
+        ctx.rotate(-(rot * Math.PI) / 180);
+        ctx.font = fontPx + 'px sans-serif';
+        ctx.fillText(t.s, 0, 0);
+        ctx.restore();
+      }
+    }
   }
 }
 
@@ -367,6 +385,19 @@ function drawOutline(canvas, part, padPx) {
     }
     ctx.stroke();
   }
+  if (part.texts && part.texts.length) {
+    ctx.fillStyle = 'rgba(180, 195, 212, 0.9)';
+    for (const t of part.texts) {
+      const fontPx = (t.h || 5) * scale;
+      if (fontPx < 3) continue;
+      ctx.save();
+      ctx.translate(ox + t.x * scale, H - oy - t.y * scale);
+      ctx.rotate(-((t.rot || 0) * Math.PI) / 180);
+      ctx.font = fontPx + 'px sans-serif';
+      ctx.fillText(t.s, 0, 0);
+      ctx.restore();
+    }
+  }
 }
 
 function showPartModal(part) {
@@ -405,6 +436,7 @@ function renderParts() {
 function partRow(part) {
   const row = el('div', 'part-row' + (part.enabled ? '' : ' disabled'));
 
+  const cellMain = el('div', 'part-cell');
   const thumb = document.createElement('canvas');
   thumb.className = 'part-thumb';
   thumb.width = 84;
@@ -412,7 +444,7 @@ function partRow(part) {
   thumb.title = 'Klikni za veliki pregled';
   drawOutline(thumb, part);
   thumb.addEventListener('click', () => showPartModal(part));
-  row.appendChild(thumb);
+  cellMain.appendChild(thumb);
 
   const main = el('div', 'part-main');
   const nameInput = document.createElement('input');
@@ -429,7 +461,8 @@ function partRow(part) {
     dims.appendChild(wlink);
   }
   main.appendChild(dims);
-  row.appendChild(main);
+  cellMain.appendChild(main);
+  row.appendChild(cellMain);
 
   // Priority
   const prio = el('label', 'part-field');
@@ -651,6 +684,7 @@ async function init() {
     $('rowScicut').hidden = true;
     $('rowOutput').hidden = true;
     $('rowAutoOpen').hidden = true;
+    $('grpLaser').hidden = true;
     $('btnOpen').textContent = '💾 PREUZMI DXF';
     $('btnSave').hidden = true;
   }

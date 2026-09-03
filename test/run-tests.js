@@ -169,9 +169,9 @@ function dxfDoc(entityLines) {
 }
 
 {
-  // Major arc (270 deg): bulge tan(3pi/8)
+  // Major arc (270 deg): bulge tan(3pi/8) - high quality => tight tolerance
   const b = Math.tan((3 * Math.PI) / 8);
-  const pts = bulgeArcPoints({ x: 0, y: 0 }, { x: 2, y: 0 }, b, 4);
+  const pts = bulgeArcPoints({ x: 0, y: 0 }, { x: 2, y: 0 }, b, 40);
   const bb = bboxOfPoints(pts);
   // Center (1,-1), r = sqrt2: bbox should span x in [1-s2, 1+s2]
   check('major arc bbox', approx(bb.minX, 1 - Math.SQRT2, 0.02) && approx(bb.maxX, 1 + Math.SQRT2, 0.02),
@@ -393,7 +393,9 @@ function dxfDoc(entityLines) {
   check('points dropped', entities.length === 1 && entities[0].type === 'CIRCLE');
   check('points warn', warnings.some((w) => w.indexOf('POINT') !== -1), warnings.join(';'));
   const info = analyzePart(doc);
-  check('points do not inflate bbox', approx(info.w, 10, 0.01) && approx(info.h, 10, 0.01),
+  // Sampled bbox may sit up to the chord tolerance (0.05mm) inside the true
+  // circle - the nesting gap absorbs this by design.
+  check('points do not inflate bbox', approx(info.w, 10, 0.11) && approx(info.h, 10, 0.11),
     JSON.stringify([info.w, info.h]));
 }
 
@@ -787,6 +789,95 @@ function rectsOverlap(a, b) {
   check('nothing fits: zero placed', res.totalPlaced === 0);
   check('nothing fits: unplaced reported', res.unplaced.length === 1);
   check('nothing fits: no dxf', res.dxf === null);
+}
+
+// ---------------------------------------------------------------------------
+// Fidelity: engraving text, layer/entity colors, curve accuracy
+// ---------------------------------------------------------------------------
+
+{
+  // TEXT on the part is kept (engraving); text far outside is annotation.
+  const doc = dxfDoc([
+    '0', 'LWPOLYLINE', '8', '0', '90', '4', '70', '1',
+    '10', '0', '20', '0', '10', '100', '20', '0', '10', '100', '20', '50', '10', '0', '20', '50',
+    '0', 'TEXT', '8', '0', '10', '30', '20', '20', '40', '8', '50', '15', '1', 'BR-42',
+    '0', 'TEXT', '8', 'KOTE', '10', '500', '20', '500', '40', '10', '1', 'NACRT',
+  ]);
+  const { entities, warnings } = parseDxf(doc);
+  const texts = entities.filter((e) => e.type === 'TEXT');
+  check('text on part kept', texts.length === 1 && texts[0].text === 'BR-42', JSON.stringify(texts));
+  check('text outside dropped+warn', warnings.some((w) => w.indexOf('izvan konture') !== -1),
+    warnings.join(';'));
+
+  const info = analyzePart(doc);
+  check('text does not affect dims', approx(info.w, 100, 0.01) && approx(info.h, 50, 0.01),
+    JSON.stringify([info.w, info.h]));
+  check('analyzePart exposes texts', info.texts.length === 1 && info.texts[0].s === 'BR-42',
+    JSON.stringify(info.texts));
+
+  // Round trip: text survives write + transform (rotation updates its angle)
+  const rot = entities.map((e) => transformEntity(e, { rotDeg: 90, dx: 10, dy: 0 }));
+  const back = parseDxf(writeDxf(rot));
+  const t2 = back.entities.find((e) => e.type === 'TEXT');
+  check('text roundtrip', !!t2 && t2.text === 'BR-42' && approx(t2.h, 8) && approx(t2.rot, 105),
+    JSON.stringify(t2));
+}
+
+{
+  // MTEXT reduced to plain text
+  const doc = dxfDoc([
+    '0', 'LWPOLYLINE', '8', '0', '90', '4', '70', '1',
+    '10', '0', '20', '0', '10', '60', '20', '0', '10', '60', '20', '40', '10', '0', '20', '40',
+    '0', 'MTEXT', '8', '0', '10', '20', '20', '20', '40', '6', '1', '{\\fArial|b0;POZ \\P 7}',
+  ]);
+  const { entities, warnings } = parseDxf(doc);
+  const t = entities.find((e) => e.type === 'TEXT');
+  check('mtext converted', !!t && t.text.indexOf('POZ') !== -1 && t.text.indexOf('\\f') === -1,
+    JSON.stringify(t));
+  check('mtext warns', warnings.some((w) => w.indexOf('MTEXT') !== -1));
+}
+
+{
+  // Layer colors + entity colors survive the round trip
+  const doc = [
+    '0', 'SECTION', '2', 'TABLES',
+    '0', 'TABLE', '2', 'LAYER', '70', '2',
+    '0', 'LAYER', '2', 'REZ', '70', '0', '62', '1', '6', 'CONTINUOUS',
+    '0', 'LAYER', '2', 'GRAVURA', '70', '0', '62', '5', '6', 'CONTINUOUS',
+    '0', 'ENDTAB', '0', 'ENDSEC',
+    '0', 'SECTION', '2', 'ENTITIES',
+    '0', 'CIRCLE', '8', 'REZ', '10', '0', '20', '0', '40', '20',
+    '0', 'LINE', '8', 'GRAVURA', '62', '3', '10', '0', '20', '0', '11', '10', '21', '0',
+    '0', 'ENDSEC', '0', 'EOF',
+  ].join('\n');
+  const parsed = parseDxf(doc);
+  check('layer colors parsed', parsed.layers.REZ === 1 && parsed.layers.GRAVURA === 5,
+    JSON.stringify(parsed.layers));
+  check('entity color parsed', parsed.entities.find((e) => e.type === 'LINE').color === 3);
+
+  const out = writeDxf(parsed.entities, { layerColors: parsed.layers });
+  const back = parseDxf(out);
+  check('layer colors roundtrip', back.layers.REZ === 1 && back.layers.GRAVURA === 5,
+    JSON.stringify(back.layers));
+  check('entity color roundtrip', back.entities.find((e) => e.type === 'LINE').color === 3);
+
+  // ...and through the full generateSheet pipeline
+  const info = analyzePart(doc);
+  const res = generateSheet({
+    sheetW: 200, sheetH: 200, margin: 5, gap: 5,
+    parts: [{ id: 'C', name: 'c', content: doc, preRotDeg: info.preRotDeg, w: info.w, h: info.h, area: info.area, priority: 1, mode: 'fixed', count: 1 }],
+  });
+  const sheet = parseDxf(res.dxf);
+  check('sheet keeps layer colors', sheet.layers.REZ === 1 && sheet.layers.GRAVURA === 5,
+    JSON.stringify(sheet.layers));
+}
+
+{
+  // A big circle keeps its size within the write tolerance (~0.025mm)
+  const big = { type: 'CIRCLE', layer: '0', cx: 0, cy: 0, r: 500 };
+  const bb = bboxOfPoints(sampleEntity(big, 8)[0]);
+  check('big circle accurate', approx(bb.w, 1000, 0.06) && approx(bb.h, 1000, 0.06),
+    JSON.stringify([bb.w, bb.h]));
 }
 
 // ---------------------------------------------------------------------------

@@ -21,15 +21,15 @@
   <main id="viewStroj" class="view">
     <div class="machine">
       <section class="card mcard">
-        <div class="steps"><b>1.</b> Izmjeri lim i upiši mjere &nbsp;·&nbsp; <b>2.</b> GENERIRAJ ili uzmi gotovu ponudu &nbsp;·&nbsp; <b>3.</b> Povuci karticu u CypCut</div>
+        <div id="setBar" class="setbar"></div>
         <div class="dims">
           <label class="dim">
             <span>DULJINA (mm)</span>
-            <input id="inWidth" type="text" inputmode="decimal" placeholder="2000" autocomplete="off">
+            <input id="inLen" type="text" inputmode="decimal" placeholder="3000" autocomplete="off">
           </label>
           <label class="dim">
             <span>ŠIRINA (mm)</span>
-            <input id="inHeight" type="text" inputmode="decimal" placeholder="1000" autocomplete="off">
+            <input id="inWid" type="text" inputmode="decimal" placeholder="1500" autocomplete="off">
           </label>
         </div>
         <button id="btnGenerate" class="generate">GENERIRAJ</button>
@@ -58,6 +58,15 @@
   <!-- ===================== PRIPREMA ====================== -->
   <main id="viewPriprema" class="view" hidden>
     <div class="prep">
+      <section class="card">
+        <h2>Setovi — režimi rada</h2>
+        <div id="setsList" class="sets"></div>
+        <div class="row-left">
+          <button id="btnNewSet" class="btn small">+ NOVI SET</button>
+        </div>
+        <div id="setsHint" class="hint"></div>
+      </section>
+
       <section class="card">
         <h2>Partovi</h2>
         <div id="dropZone" class="drop">
@@ -91,7 +100,7 @@
             <label>Ponude sličnih ploča — tolerancija (mm)
               <input id="setHistTol" type="text" inputmode="decimal">
             </label>
-            <label class="check"><input id="setRotate" type="checkbox"> Dozvoli rotaciju 90° <em>(zrcaljenje je uvijek zabranjeno)</em></label>
+            <label class="check"><input id="setRotate" type="checkbox"> Dozvoli rotaciju (90°/180°) <em>(zrcaljenje je uvijek zabranjeno)</em></label>
             <label class="check"><input id="setFrame" type="checkbox"> Dodaj okvir ploče u DXF (layer PLOCA)</label>
           </div>
           <div class="sgroup" id="grpLaser">
@@ -119,6 +128,18 @@
       </section>
     </div>
   </main>
+
+  <!-- Pair picker modal -->
+  <div id="pairModal" class="modal" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <div id="pairTitle"></div>
+        <button id="pairClose" class="btn small ghost">✕ ZATVORI</button>
+      </div>
+      <div id="pairList" class="pair-list"></div>
+      <div class="modal-info">Upareni partovi uvijek idu zajedno na istu ploču, u jednakom broju — npr. lijevo i desno čelo. Program ih i fizički slaže jedan uz drugi (drugi po potrebi okrenut 180°).</div>
+    </div>
+  </div>
 
   <!-- Part inspection modal -->
   <div id="partModal" class="modal" hidden>

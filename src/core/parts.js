@@ -11,6 +11,7 @@ const {
   minAreaRect, bboxOfPoints, rotatePoint, rotatePoints, convexHull, polygonArea, simplifyPolyline,
 } = require('./geometry');
 const { nestParts } = require('./nest');
+const { bestDuoLayout, separateArea } = require('./pair');
 
 const SAMPLE_QUALITY = 4; // matches writeDxf flattening quality
 
@@ -104,6 +105,145 @@ function round3(n) {
 
 
 /**
+ * Resolve the effective part list for nesting from the library and the
+ * active set. A null set means "all enabled parts with their own settings";
+ * a set contributes only its member parts, with the set's per-part settings.
+ */
+function applySet(parts, set) {
+  if (!set) return parts.filter((p) => p.enabled);
+  const items = (set && set.items) || {};
+  const out = [];
+  for (const p of parts) {
+    const it = items[p.id];
+    if (!it) continue;
+    out.push({
+      ...p,
+      enabled: true,
+      priority: Number.isFinite(it.priority) ? it.priority : p.priority,
+      mode: it.mode === 'fixed' ? 'fixed' : 'filler',
+      count: Number.isFinite(it.count) ? it.count : p.count,
+      maxCount: Number.isFinite(it.maxCount) ? it.maxCount : p.maxCount,
+    });
+  }
+  return out;
+}
+
+const prioOf = (p) => (Number.isFinite(p.priority) ? p.priority : 999);
+
+/**
+ * Build the rectangle "units" the packer works with:
+ *  - paired parts (pairId) always form a duo block, so both land on the same
+ *    sheet in equal counts, laid out via bestDuoLayout (second part may be
+ *    turned 180 degrees - never mirrored);
+ *  - a single part whose outline interlocks with itself (saving >= 8%) is
+ *    packed two-at-a-time head-to-toe, with a single unit for the remainder.
+ */
+function buildUnits(parts, gap) {
+  const notes = [];
+  const units = [];
+  const used = new Set();
+  const partById = {};
+  for (const p of parts) partById[p.id] = p;
+
+  const duoCache = {};
+  // Parts without a stored outline (or degenerate ones) profile as plain
+  // rectangles - the duo then degenerates to a safe side-by-side layout.
+  const shellOf = (p) => ({
+    w: p.w,
+    h: p.h,
+    outline: (Array.isArray(p.outline) && p.outline.length > 0)
+      ? p.outline
+      : [[[0, 0], [p.w, 0], [p.w, p.h], [0, p.h], [0, 0]]],
+  });
+  const duoFor = (a, b) => {
+    const key = a.id + '|' + b.id;
+    if (!duoCache[key]) duoCache[key] = bestDuoLayout(shellOf(a), shellOf(b), gap);
+    return duoCache[key];
+  };
+  const memberOf = (part, slot) => ({ part, rot180: !!slot.rot180, ox: slot.ox, oy: slot.oy });
+
+  for (const p of parts) {
+    if (used.has(p.id)) continue;
+    const partner = p.pairId && p.pairId !== p.id ? partById[p.pairId] : null;
+    if (p.pairId && p.pairId !== p.id && !partner) {
+      notes.push('Par "' + p.name + '": partner nije u aktivnom setu - slaže se pojedinačno.');
+    }
+
+    if (partner && !used.has(partner.id)) {
+      used.add(p.id);
+      used.add(partner.id);
+      const lay = duoFor(p, partner);
+      const isFiller = p.mode === 'filler' && partner.mode === 'filler';
+      const maxA = p.maxCount || 0;
+      const maxB = partner.maxCount || 0;
+      let maxCount = 0;
+      if (maxA > 0 && maxB > 0) maxCount = Math.min(maxA, maxB);
+      else maxCount = Math.max(maxA, maxB);
+      units.push({
+        uid: 'd:' + p.id + ':' + partner.id,
+        w: lay.w,
+        h: lay.h,
+        area: p.area + partner.area,
+        priority: Math.min(prioOf(p), prioOf(partner)),
+        mode: isFiller ? 'filler' : 'fixed',
+        count: Math.min(Math.max(0, Math.floor(p.count || 0)), Math.max(0, Math.floor(partner.count || 0))),
+        maxCount,
+        members: [memberOf(p, lay.a), memberOf(partner, lay.b)],
+      });
+      continue;
+    }
+
+    used.add(p.id);
+    const singleUnit = {
+      uid: 's:' + p.id,
+      w: p.w,
+      h: p.h,
+      area: p.area,
+      priority: prioOf(p),
+      mode: p.mode,
+      count: p.count,
+      maxCount: p.maxCount,
+      members: [{ part: p, rot180: false, ox: 0, oy: 0 }],
+    };
+
+    const lay = duoFor(p, p);
+    const selfDuoGood = lay
+      && (lay.w + gap) * (lay.h + gap) <= 0.92 * separateArea(p, p, gap);
+    if (!selfDuoGood) {
+      units.push(singleUnit);
+      continue;
+    }
+
+    const duoUnit = {
+      uid: 'd:' + p.id + ':' + p.id,
+      w: lay.w,
+      h: lay.h,
+      area: 2 * p.area,
+      priority: prioOf(p),
+      mode: p.mode,
+      count: 0,
+      maxCount: 0,
+      members: [memberOf(p, lay.a), memberOf(p, lay.b)],
+    };
+    if (p.mode !== 'filler') {
+      const want = Math.max(0, Math.floor(p.count || 0));
+      duoUnit.count = Math.floor(want / 2);
+      singleUnit.count = want % 2;
+      if (duoUnit.count > 0) units.push(duoUnit);
+      if (singleUnit.count > 0) units.push(singleUnit);
+    } else if (p.maxCount && p.maxCount > 0) {
+      // An exact cap across two unit types cannot be guaranteed - keep the
+      // cap exact with singles only.
+      units.push(singleUnit);
+    } else {
+      units.push(duoUnit);
+      units.push(singleUnit);
+    }
+  }
+  return { units, notes };
+}
+
+/**
  * Run the nesting and produce the sheet DXF plus preview data.
  *
  * @param {object} opts
@@ -122,7 +262,12 @@ function generateSheet(opts) {
   const {
     sheetW, sheetH, margin = 10, gap = 8,
     allowRotate = true, addFrame = false, parts = [], maxTotal,
+    order = 'priority',
   } = opts;
+
+  const { units, notes } = buildUnits(parts, gap);
+  const unitsById = {};
+  for (const u of units) unitsById[u.uid] = u;
 
   const nest = nestParts({
     sheetW,
@@ -131,15 +276,16 @@ function generateSheet(opts) {
     gap,
     allowRotate,
     maxTotal,
-    parts: parts.map((p) => ({
-      id: p.id,
-      w: p.w,
-      h: p.h,
-      area: p.area,
-      priority: p.priority,
-      mode: p.mode,
-      count: p.count,
-      maxCount: p.maxCount,
+    order,
+    parts: units.map((u) => ({
+      id: u.uid,
+      w: u.w,
+      h: u.h,
+      area: u.area,
+      priority: u.priority,
+      mode: u.mode,
+      count: u.count,
+      maxCount: u.maxCount,
     })),
   });
 
@@ -175,36 +321,58 @@ function generateSheet(opts) {
 
   const outEntities = [];
   const placements = [];
+  const placedByPart = {};
 
   for (const pl of nest.placements) {
-    const c = getPart(pl.id);
-    const rotDeg = (c.part.preRotDeg || 0) + (pl.rotated ? 90 : 0);
-    const or = getOrientation(pl.id, rotDeg);
-    const dx = pl.x - or.bb.minX;
-    const dy = pl.y - or.bb.minY;
+    const u = unitsById[pl.id];
+    for (const m of u.members) {
+      const part = m.part;
+      const mw = part.w;
+      const mh = part.h;
+      // Member bbox position inside the (possibly 90-degree-rotated) unit.
+      let gx;
+      let gy;
+      if (!pl.rotated) {
+        gx = pl.x + m.ox;
+        gy = pl.y + m.oy;
+      } else {
+        // Unit box (w x h) turned 90 CCW: local (x,y) -> (h - y, x).
+        gx = pl.x + (u.h - m.oy - mh);
+        gy = pl.y + m.ox;
+      }
+      const turn = (m.rot180 ? 180 : 0) + (pl.rotated ? 90 : 0);
+      const rotDeg = (part.preRotDeg || 0) + turn;
+      const or = getOrientation(part.id, rotDeg);
+      const dx = gx - or.bb.minX;
+      const dy = gy - or.bb.minY;
 
-    for (const e of c.entities) {
-      outEntities.push(transformEntity(e, { rotDeg, dx, dy }));
+      const c = getPart(part.id);
+      for (const e of c.entities) {
+        outEntities.push(transformEntity(e, { rotDeg, dx, dy }));
+      }
+      placedByPart[part.id] = (placedByPart[part.id] || 0) + 1;
+
+      placements.push({
+        id: part.id,
+        name: part.name,
+        x: gx,
+        y: gy,
+        w: pl.rotated ? mh : mw,
+        h: pl.rotated ? mw : mh,
+        rotated: turn === 90 || turn === 270,
+        turn,
+        // Exact rigid transform (entity' = R(rotDeg)*entity + (dx,dy)) -
+        // enough to re-create the identical sheet DXF later without storing
+        // the file.
+        rotDeg,
+        dx,
+        dy,
+        outline: or.rotated.map((poly) => simplifyPolyline(
+          poly.map(([x, y]) => [round3(x + dx), round3(y + dy)]),
+          0.1,
+        )),
+      });
     }
-
-    placements.push({
-      id: pl.id,
-      name: c.part.name,
-      x: pl.x,
-      y: pl.y,
-      w: pl.w,
-      h: pl.h,
-      rotated: pl.rotated,
-      // Exact rigid transform (entity' = R(rotDeg)*entity + (dx,dy)) - enough
-      // to re-create the identical sheet DXF later without storing the file.
-      rotDeg,
-      dx,
-      dy,
-      outline: or.rotated.map((poly) => simplifyPolyline(
-        poly.map(([x, y]) => [round3(x + dx), round3(y + dy)]),
-        0.1,
-      )),
-    });
   }
 
   if (addFrame) {
@@ -222,28 +390,67 @@ function generateSheet(opts) {
   }
 
   const summary = [];
-  for (const id of Object.keys(nest.placedCounts)) {
-    const c = getPart(id);
-    summary.push({ id, name: c.part.name, count: nest.placedCounts[id] });
+  for (const id of Object.keys(placedByPart)) {
+    const p = parts.find((q) => q.id === id);
+    summary.push({ id, name: p ? p.name : id, count: placedByPart[id] });
   }
   summary.sort((a, b) => b.count - a.count);
 
-  const unplaced = nest.unplaced.map((u) => {
-    const p = parts.find((q) => q.id === u.id);
-    return { id: u.id, name: p ? p.name : u.id, count: u.count };
+  // Unit-level shortfalls map back to their member parts (a missed duo
+  // means one missing copy of EACH member).
+  const unplacedByPart = {};
+  for (const u of nest.unplaced) {
+    const unit = unitsById[u.id];
+    if (!unit) continue;
+    for (const m of unit.members) {
+      unplacedByPart[m.part.id] = (unplacedByPart[m.part.id] || 0) + u.count;
+    }
+  }
+  const unplaced = Object.keys(unplacedByPart).map((id) => {
+    const p = parts.find((q) => q.id === id);
+    return { id, name: p ? p.name : id, count: unplacedByPart[id] };
   });
 
   return {
     dxf: outEntities.length > 0 ? writeDxf(outEntities, { layerColors }) : null,
     placements,
     unplaced,
-    placedCounts: nest.placedCounts,
+    placedCounts: placedByPart,
     utilization: nest.utilization,
-    totalPlaced: nest.placements.length,
+    totalPlaced: placements.length,
     summary,
+    notes,
     capped: nest.capped,
     maxTotal: nest.maxTotal,
   };
+}
+
+/**
+ * Generate up to three different sheets for the same input:
+ *  1. by priorities (the standard order),
+ *  2. biggest parts first (priorities ignored),
+ *  3. small parts flood the sheet first.
+ * Identical results are deduplicated.
+ */
+function generateVariants(opts) {
+  const defs = [
+    { variant: 'prioriteti', variantLabel: 'Po prioritetima', order: 'priority' },
+    { variant: 'krupno', variantLabel: 'Krupni komadi', order: 'big' },
+    { variant: 'sitno', variantLabel: 'Sitni komadi', order: 'small' },
+  ];
+  const out = [];
+  const seen = new Set();
+  for (const d of defs) {
+    const res = generateSheet({ ...opts, order: d.order });
+    if (res.totalPlaced === 0) continue;
+    const sig = JSON.stringify(res.placements.map((p) => [
+      p.id, Math.round(p.x * 10), Math.round(p.y * 10), p.turn,
+    ]).sort());
+    if (seen.has(sig)) continue;
+    seen.add(sig);
+    out.push({ ...res, variant: d.variant, variantLabel: d.variantLabel });
+  }
+  return out;
 }
 
 /**
@@ -303,4 +510,6 @@ function buildSheetDxf(opts) {
   return writeDxf(outEntities, { layerColors });
 }
 
-module.exports = { analyzePart, generateSheet, buildSheetDxf };
+module.exports = {
+  analyzePart, generateSheet, generateVariants, buildSheetDxf, buildUnits, applySet,
+};

@@ -66,12 +66,82 @@ html, body {
   flex-direction: column;
   gap: 12px;
 }
-.steps {
-  color: var(--muted);
+
+/* Set switcher chips */
+.setbar { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip {
   font-size: 13px;
-  letter-spacing: 0.3px;
+  font-weight: 700;
+  padding: 6px 14px;
+  border-radius: 99px;
+  border: 2px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  letter-spacing: 0.4px;
 }
-.steps b { color: var(--accent2); }
+.chip:hover { border-color: #4a5a6e; }
+.chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #14100a;
+}
+
+/* Sets management */
+.sets { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.set-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+.set-row.active { border-color: var(--accent); }
+.set-row input {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 700;
+  background: transparent;
+  color: var(--text);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 6px;
+  min-width: 80px;
+}
+.set-row input:hover, .set-row input:focus { border-color: var(--line); background: var(--bg); outline: none; }
+.set-count { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.row-left { display: flex; gap: 8px; }
+.hint { color: var(--muted); font-size: 12px; margin-top: 8px; }
+
+/* Pair link */
+.pair-line { display: flex; gap: 6px; align-items: center; margin-top: 2px; }
+.pair-badge {
+  color: var(--accent2);
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(255, 122, 26, 0.12);
+  border-radius: 6px;
+  padding: 2px 7px;
+}
+.btn.tiny { font-size: 11px; padding: 2px 8px; border-width: 1px; }
+.pair-list { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow-y: auto; }
+.pair-option {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+  text-align: left;
+}
+.pair-option:hover { border-color: var(--accent); }
+.pair-option canvas { background: #0d1015; border-radius: 4px; flex: 0 0 auto; }
 
 /* ---------------- machine view ---------------- */
 .machine {
@@ -444,7 +514,6 @@ html, body {
   .tab { font-size: 13px; padding: 6px 12px; }
   .dims { gap: 8px; }
   .generate { letter-spacing: 1px; }
-  .steps { font-size: 12px; }
   .cards { grid-template-columns: 1fr; }
   .history-row .hdate, .history-row .hdims { width: auto; }
 }

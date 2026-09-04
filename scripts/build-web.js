@@ -32,6 +32,7 @@ const bundleCore = [
   wrapModule('dxf', 'src/core/dxf.js'),
   wrapModule('geometry', 'src/core/geometry.js'),
   wrapModule('nest', 'src/core/nest.js'),
+  wrapModule('pair', 'src/core/pair.js'),
   wrapModule('parts', 'src/core/parts.js'),
 ].join('\n');
 

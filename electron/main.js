@@ -7,7 +7,9 @@ const {
   app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeImage,
 } = require('electron');
 
-const { analyzePart, buildSheetDxf, generateSheet } = require('../src/core/parts');
+const {
+  analyzePart, applySet, buildSheetDxf, generateVariants,
+} = require('../src/core/parts');
 
 let win = null;
 
@@ -21,13 +23,14 @@ const tempDir = () => path.join(dataDir(), 'temp');
 const libraryFile = () => path.join(dataDir(), 'library.json');
 const settingsFile = () => path.join(dataDir(), 'settings.json');
 const historyFile = () => path.join(dataDir(), 'history.json');
+const setsFile = () => path.join(dataDir(), 'sets.json');
 
 const DEFAULT_SETTINGS = {
   gap: 8,          // razmak između partova (mm)
   margin: 10,      // rub ploče (mm)
   histTol: 20,     // tolerancija za ponude ploča istih dimenzija (mm)
   allowRotate: true,
-  autoOpen: true,  // odmah otvori generiranu ploču u CypCut-u
+  autoOpen: false, // odmah otvori generiranu ploču u CypCut-u
   addFrame: false, // dodaj okvir ploče u DXF (layer PLOCA)
   scicutPath: '',  // putanja do CypCut/SciCut .exe (prazno = zadana aplikacija)
   outputDir: '',   // zadana mapa za "Spremi DXF"
@@ -86,6 +89,22 @@ function loadHistory() {
   if (!Array.isArray(h.sheets)) h.sheets = [];
   return h;
 }
+
+function loadSets() {
+  const s = readJson(setsFile(), { sets: [], activeSetId: null });
+  if (!Array.isArray(s.sets)) s.sets = [];
+  for (const set of s.sets) {
+    if (!set.items || typeof set.items !== 'object') set.items = {};
+  }
+  if (s.activeSetId && !s.sets.some((x) => x.id === s.activeSetId)) s.activeSetId = null;
+  return s;
+}
+
+function saveSets(s) {
+  writeJson(setsFile(), s);
+}
+
+const PAIR_MIRRORED = ['priority', 'mode', 'count', 'maxCount'];
 
 function newId() {
   return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -217,9 +236,10 @@ ipcMain.handle('parts:add', (ev, files) => {
         id,
         name,
         priority: 5,
-        mode: 'fixed', // 'fixed' | 'filler'
+        mode: 'filler', // 'filler' (default) | 'fixed'
         count: 1,
         maxCount: 0,
+        pairId: null,
         enabled: true,
         preRotDeg: info.preRotDeg,
         w: Math.round(info.w * 1000) / 1000,
@@ -243,15 +263,12 @@ ipcMain.handle('parts:add', (ev, files) => {
 
 const EDITABLE_FIELDS = new Set(['name', 'priority', 'mode', 'count', 'maxCount', 'enabled']);
 
-ipcMain.handle('parts:update', (ev, id, patch) => {
-  if (!validId(id)) throw new Error('Neispravan ID parta.');
-  const lib = loadLibrary();
-  const entry = lib.parts.find((p) => p.id === id);
-  if (!entry) throw new Error('Part ne postoji.');
+function applyPartPatch(entry, patch) {
+  const changed = {};
   for (const [k, v] of Object.entries(patch || {})) {
     if (!EDITABLE_FIELDS.has(k)) continue;
     if (k === 'name') entry.name = sanitizeName(v);
-    else if (k === 'mode') entry.mode = v === 'filler' ? 'filler' : 'fixed';
+    else if (k === 'mode') entry.mode = v === 'fixed' ? 'fixed' : 'filler';
     else if (k === 'enabled') entry.enabled = !!v;
     else {
       const n = Math.floor(Number(v));
@@ -259,20 +276,152 @@ ipcMain.handle('parts:update', (ev, id, patch) => {
       if (k === 'count') entry.count = Math.min(999, Math.max(0, Number.isFinite(n) ? n : 1));
       if (k === 'maxCount') entry.maxCount = Math.min(9999, Math.max(0, Number.isFinite(n) ? n : 0));
     }
+    if (PAIR_MIRRORED.indexOf(k) !== -1) changed[k] = entry[k];
+  }
+  return changed;
+}
+
+ipcMain.handle('parts:update', (ev, id, patch) => {
+  if (!validId(id)) throw new Error('Neispravan ID parta.');
+  const lib = loadLibrary();
+  const entry = lib.parts.find((p) => p.id === id);
+  if (!entry) throw new Error('Part ne postoji.');
+  const mirrored = applyPartPatch(entry, patch);
+  // Paired parts share priority/mode/count so the pair stays consistent.
+  if (entry.pairId && Object.keys(mirrored).length > 0) {
+    const partner = lib.parts.find((p) => p.id === entry.pairId);
+    if (partner) Object.assign(partner, mirrored);
   }
   writeJson(libraryFile(), lib);
   return entry;
 });
 
+ipcMain.handle('parts:pair', (ev, idA, idB) => {
+  if (!validId(idA)) throw new Error('Neispravan ID parta.');
+  const lib = loadLibrary();
+  const a = lib.parts.find((p) => p.id === idA);
+  if (!a) throw new Error('Part ne postoji.');
+  // Unlink whatever A was paired with before.
+  if (a.pairId) {
+    const old = lib.parts.find((p) => p.id === a.pairId);
+    if (old) old.pairId = null;
+    a.pairId = null;
+  }
+  if (idB) {
+    if (!validId(idB) || idB === idA) throw new Error('Neispravan par.');
+    const b = lib.parts.find((p) => p.id === idB);
+    if (!b) throw new Error('Part za uparivanje ne postoji.');
+    if (b.pairId) {
+      const old = lib.parts.find((p) => p.id === b.pairId);
+      if (old) old.pairId = null;
+    }
+    a.pairId = b.id;
+    b.pairId = a.id;
+    // The pair shares settings - take them from the part being linked.
+    for (const k of PAIR_MIRRORED) b[k] = a[k];
+  }
+  writeJson(libraryFile(), lib);
+  return lib.parts;
+});
+
 ipcMain.handle('parts:remove', (ev, id) => {
   if (!validId(id)) throw new Error('Neispravan ID parta.');
   const lib = loadLibrary();
+  const entry = lib.parts.find((p) => p.id === id);
+  if (entry && entry.pairId) {
+    const partner = lib.parts.find((p) => p.id === entry.pairId);
+    if (partner) partner.pairId = null;
+  }
   lib.parts = lib.parts.filter((p) => p.id !== id);
   writeJson(libraryFile(), lib);
+  // Drop the part from every set as well.
+  const sets = loadSets();
+  let setsTouched = false;
+  for (const s of sets.sets) {
+    if (s.items[id]) {
+      delete s.items[id];
+      setsTouched = true;
+    }
+  }
+  if (setsTouched) saveSets(sets);
   try {
     fs.unlinkSync(path.join(partsDir(), id + '.dxf'));
   } catch { /* already gone */ }
   return true;
+});
+
+// ---------------------------------------------------------------------------
+// IPC: sets (work profiles - one active at a time)
+// ---------------------------------------------------------------------------
+
+ipcMain.handle('sets:list', () => loadSets());
+
+ipcMain.handle('sets:create', (ev, name) => {
+  const s = loadSets();
+  const set = { id: newId(), name: sanitizeName(name || ('Set ' + (s.sets.length + 1))), items: {} };
+  s.sets.push(set);
+  s.activeSetId = set.id;
+  saveSets(s);
+  return s;
+});
+
+ipcMain.handle('sets:rename', (ev, id, name) => {
+  const s = loadSets();
+  const set = s.sets.find((x) => x.id === id);
+  if (!set) throw new Error('Set ne postoji.');
+  set.name = sanitizeName(name);
+  saveSets(s);
+  return s;
+});
+
+ipcMain.handle('sets:remove', (ev, id) => {
+  const s = loadSets();
+  s.sets = s.sets.filter((x) => x.id !== id);
+  if (s.activeSetId === id) s.activeSetId = null;
+  saveSets(s);
+  return s;
+});
+
+// Only one set can be active - activating one deactivates the previous.
+ipcMain.handle('sets:activate', (ev, id) => {
+  const s = loadSets();
+  s.activeSetId = (id && s.sets.some((x) => x.id === id)) ? id : null;
+  saveSets(s);
+  return s;
+});
+
+ipcMain.handle('sets:setItem', (ev, setId, partId, patch) => {
+  if (!validId(partId)) throw new Error('Neispravan ID parta.');
+  const s = loadSets();
+  const set = s.sets.find((x) => x.id === setId);
+  if (!set) throw new Error('Set ne postoji.');
+  const lib = loadLibrary();
+  const part = lib.parts.find((p) => p.id === partId);
+  if (!part) throw new Error('Part ne postoji.');
+  if (patch === null) {
+    delete set.items[partId];
+    if (part.pairId) delete set.items[part.pairId];
+  } else {
+    const base = set.items[partId]
+      || { priority: part.priority, mode: part.mode, count: part.count, maxCount: part.maxCount };
+    const merged = { ...base };
+    for (const k of PAIR_MIRRORED) {
+      if (patch && Object.prototype.hasOwnProperty.call(patch, k)) {
+        const n = Math.floor(Number(patch[k]));
+        if (k === 'mode') merged.mode = patch.mode === 'fixed' ? 'fixed' : 'filler';
+        else if (k === 'priority') merged.priority = Math.min(99, Math.max(1, Number.isFinite(n) ? n : 5));
+        else if (k === 'count') merged.count = Math.min(999, Math.max(0, Number.isFinite(n) ? n : 1));
+        else if (k === 'maxCount') merged.maxCount = Math.min(9999, Math.max(0, Number.isFinite(n) ? n : 0));
+      }
+    }
+    set.items[partId] = merged;
+    // Pairs enter/leave sets together and share settings.
+    if (part.pairId && lib.parts.some((p) => p.id === part.pairId)) {
+      set.items[part.pairId] = { ...merged };
+    }
+  }
+  saveSets(s);
+  return s;
 });
 
 // ---------------------------------------------------------------------------
@@ -317,13 +466,20 @@ ipcMain.handle('nest:generate', async (ev, req) => {
 
   const settings = loadSettings();
   const lib = loadLibrary();
-  const active = lib.parts.filter((p) => p.enabled);
-  if (active.length === 0) {
-    return { ok: false, message: 'Nema uključenih partova. Dodajte ih u PRIPREMI.' };
+  const setsState = loadSets();
+  const activeSet = setsState.sets.find((s) => s.id === setsState.activeSetId) || null;
+  const effective = applySet(lib.parts, activeSet);
+  if (effective.length === 0) {
+    return {
+      ok: false,
+      message: activeSet
+        ? 'Aktivni set "' + activeSet.name + '" je prazan. Dodajte partove u set u PRIPREMI.'
+        : 'Nema uključenih partova. Dodajte ih u PRIPREMI.',
+    };
   }
 
   const parts = [];
-  for (const p of active) {
+  for (const p of effective) {
     let content;
     try {
       content = fs.readFileSync(path.join(partsDir(), p.id + '.dxf'), 'utf8');
@@ -333,10 +489,10 @@ ipcMain.handle('nest:generate', async (ev, req) => {
     parts.push({ ...p, content });
   }
 
-  let result;
+  let variants;
   const t0 = Date.now();
   try {
-    result = generateSheet({
+    variants = generateVariants({
       sheetW: width,
       sheetH: height,
       margin: settings.margin,
@@ -350,57 +506,81 @@ ipcMain.handle('nest:generate', async (ev, req) => {
   }
   const elapsedMs = Date.now() - t0;
 
-  if (result.totalPlaced === 0) {
+  if (variants.length === 0) {
     return {
       ok: false,
-      message: 'Ništa ne stane na ploču ' + width + ' x ' + height + ' mm. Provjerite dimenzije i rub.',
-      unplaced: result.unplaced,
+      message: 'Ništa ne stane na ploču ' + height + ' x ' + width + ' mm. Provjerite dimenzije i rub.',
     };
   }
 
   const now = new Date();
-  const id = newId();
-  const fileName = 'Ploca_' + Math.round(width) + 'x' + Math.round(height)
-    + '_' + now.getFullYear() + '-' + pad2(now.getMonth() + 1) + '-' + pad2(now.getDate())
-    + '_' + pad2(now.getHours()) + '-' + pad2(now.getMinutes()) + '-' + pad2(now.getSeconds())
-    + '_' + id.slice(-4) + '.dxf';
+  const batch = newId();
+  const stamp = now.getFullYear() + '-' + pad2(now.getMonth() + 1) + '-' + pad2(now.getDate())
+    + '_' + pad2(now.getHours()) + '-' + pad2(now.getMinutes()) + '-' + pad2(now.getSeconds());
 
-  // Compact history record - no DXF file is written; it is re-created on
-  // demand from these placements.
-  const entry = {
-    id,
-    date: now.toISOString(),
-    width,
-    height,
-    fileName,
-    addFrame: !!settings.addFrame,
-    placements: result.placements.map((pl) => ({
-      id: pl.id,
-      x: Math.round(pl.x * 1000) / 1000,
-      y: Math.round(pl.y * 1000) / 1000,
-      w: Math.round(pl.w * 1000) / 1000,
-      h: Math.round(pl.h * 1000) / 1000,
-      rotated: pl.rotated,
-      rotDeg: pl.rotDeg,
-      dx: pl.dx,
-      dy: pl.dy,
-    })),
-    summary: result.summary,
-    unplaced: result.unplaced,
-    utilization: Math.round(result.utilization * 1000) / 1000,
-    totalPlaced: result.totalPlaced,
-    capped: result.capped,
-  };
+  const entries = [];
+  const sheets = [];
+  for (let vi = 0; vi < variants.length; vi++) {
+    const result = variants[vi];
+    const id = newId();
+    // File name reads duljina x širina (Y x X).
+    const fileName = 'Ploca_' + Math.round(height) + 'x' + Math.round(width)
+      + '_' + stamp + '_v' + (vi + 1) + '_' + id.slice(-4) + '.dxf';
+    entries.push({
+      id,
+      batch,
+      variant: result.variant,
+      variantLabel: result.variantLabel,
+      date: now.toISOString(),
+      width,
+      height,
+      fileName,
+      addFrame: !!settings.addFrame,
+      setName: activeSet ? activeSet.name : null,
+      placements: result.placements.map((pl) => ({
+        id: pl.id,
+        x: Math.round(pl.x * 1000) / 1000,
+        y: Math.round(pl.y * 1000) / 1000,
+        w: Math.round(pl.w * 1000) / 1000,
+        h: Math.round(pl.h * 1000) / 1000,
+        rotated: pl.rotated,
+        turn: pl.turn,
+        rotDeg: pl.rotDeg,
+        dx: pl.dx,
+        dy: pl.dy,
+      })),
+      summary: result.summary,
+      unplaced: result.unplaced,
+      notes: result.notes,
+      utilization: Math.round(result.utilization * 1000) / 1000,
+      totalPlaced: result.totalPlaced,
+      capped: result.capped,
+    });
+    sheets.push({
+      sheetId: id,
+      batch,
+      variant: result.variant,
+      variantLabel: result.variantLabel,
+      fileName,
+      unplaced: result.unplaced,
+      notes: result.notes,
+      summary: result.summary,
+      utilization: result.utilization,
+      totalPlaced: result.totalPlaced,
+      capped: result.capped,
+      maxTotal: result.maxTotal,
+    });
+  }
+
   const history = loadHistory();
-  history.sheets.unshift(entry);
-  history.sheets = history.sheets.slice(0, 200);
+  history.sheets = entries.concat(history.sheets).slice(0, 200);
   writeJson(historyFile(), history);
 
   let opened = false;
   let openMessage = '';
   if (settings.autoOpen) {
     try {
-      const p = materializeSheet(entry);
+      const p = materializeSheet(entries[0]);
       const r = await openDxf(p, settings);
       opened = r.ok;
       openMessage = r.message || '';
@@ -411,17 +591,10 @@ ipcMain.handle('nest:generate', async (ev, req) => {
 
   return {
     ok: true,
-    sheetId: id,
+    batch,
     width,
     height,
-    fileName,
-    placements: result.placements,
-    unplaced: result.unplaced,
-    summary: result.summary,
-    utilization: result.utilization,
-    totalPlaced: result.totalPlaced,
-    capped: result.capped,
-    maxTotal: result.maxTotal,
+    sheets,
     elapsedMs,
     opened,
     openMessage,

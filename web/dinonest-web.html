@@ -73,12 +73,82 @@ html, body {
   flex-direction: column;
   gap: 12px;
 }
-.steps {
-  color: var(--muted);
+
+/* Set switcher chips */
+.setbar { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip {
   font-size: 13px;
-  letter-spacing: 0.3px;
+  font-weight: 700;
+  padding: 6px 14px;
+  border-radius: 99px;
+  border: 2px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  letter-spacing: 0.4px;
 }
-.steps b { color: var(--accent2); }
+.chip:hover { border-color: #4a5a6e; }
+.chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #14100a;
+}
+
+/* Sets management */
+.sets { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.set-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+.set-row.active { border-color: var(--accent); }
+.set-row input {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 700;
+  background: transparent;
+  color: var(--text);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 6px;
+  min-width: 80px;
+}
+.set-row input:hover, .set-row input:focus { border-color: var(--line); background: var(--bg); outline: none; }
+.set-count { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.row-left { display: flex; gap: 8px; }
+.hint { color: var(--muted); font-size: 12px; margin-top: 8px; }
+
+/* Pair link */
+.pair-line { display: flex; gap: 6px; align-items: center; margin-top: 2px; }
+.pair-badge {
+  color: var(--accent2);
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(255, 122, 26, 0.12);
+  border-radius: 6px;
+  padding: 2px 7px;
+}
+.btn.tiny { font-size: 11px; padding: 2px 8px; border-width: 1px; }
+.pair-list { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow-y: auto; }
+.pair-option {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+  text-align: left;
+}
+.pair-option:hover { border-color: var(--accent); }
+.pair-option canvas { background: #0d1015; border-radius: 4px; flex: 0 0 auto; }
 
 /* ---------------- machine view ---------------- */
 .machine {
@@ -451,7 +521,6 @@ html, body {
   .tab { font-size: 13px; padding: 6px 12px; }
   .dims { gap: 8px; }
   .generate { letter-spacing: 1px; }
-  .steps { font-size: 12px; }
   .cards { grid-template-columns: 1fr; }
   .history-row .hdate, .history-row .hdims { width: auto; }
 }
@@ -483,15 +552,15 @@ html, body {
   <main id="viewStroj" class="view">
     <div class="machine">
       <section class="card mcard">
-        <div class="steps"><b>1.</b> Izmjeri lim i upiši mjere &nbsp;·&nbsp; <b>2.</b> GENERIRAJ ili uzmi gotovu ponudu &nbsp;·&nbsp; <b>3.</b> Povuci karticu u CypCut</div>
+        <div id="setBar" class="setbar"></div>
         <div class="dims">
           <label class="dim">
             <span>DULJINA (mm)</span>
-            <input id="inWidth" type="text" inputmode="decimal" placeholder="2000" autocomplete="off">
+            <input id="inLen" type="text" inputmode="decimal" placeholder="3000" autocomplete="off">
           </label>
           <label class="dim">
             <span>ŠIRINA (mm)</span>
-            <input id="inHeight" type="text" inputmode="decimal" placeholder="1000" autocomplete="off">
+            <input id="inWid" type="text" inputmode="decimal" placeholder="1500" autocomplete="off">
           </label>
         </div>
         <button id="btnGenerate" class="generate">GENERIRAJ</button>
@@ -520,6 +589,15 @@ html, body {
   <!-- ===================== PRIPREMA ====================== -->
   <main id="viewPriprema" class="view" hidden>
     <div class="prep">
+      <section class="card">
+        <h2>Setovi — režimi rada</h2>
+        <div id="setsList" class="sets"></div>
+        <div class="row-left">
+          <button id="btnNewSet" class="btn small">+ NOVI SET</button>
+        </div>
+        <div id="setsHint" class="hint"></div>
+      </section>
+
       <section class="card">
         <h2>Partovi</h2>
         <div id="dropZone" class="drop">
@@ -553,7 +631,7 @@ html, body {
             <label>Ponude sličnih ploča — tolerancija (mm)
               <input id="setHistTol" type="text" inputmode="decimal">
             </label>
-            <label class="check"><input id="setRotate" type="checkbox"> Dozvoli rotaciju 90° <em>(zrcaljenje je uvijek zabranjeno)</em></label>
+            <label class="check"><input id="setRotate" type="checkbox"> Dozvoli rotaciju (90°/180°) <em>(zrcaljenje je uvijek zabranjeno)</em></label>
             <label class="check"><input id="setFrame" type="checkbox"> Dodaj okvir ploče u DXF (layer PLOCA)</label>
           </div>
           <div class="sgroup" id="grpLaser">
@@ -581,6 +659,18 @@ html, body {
       </section>
     </div>
   </main>
+
+  <!-- Pair picker modal -->
+  <div id="pairModal" class="modal" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <div id="pairTitle"></div>
+        <button id="pairClose" class="btn small ghost">✕ ZATVORI</button>
+      </div>
+      <div id="pairList" class="pair-list"></div>
+      <div class="modal-info">Upareni partovi uvijek idu zajedno na istu ploču, u jednakom broju — npr. lijevo i desno čelo. Program ih i fizički slaže jedan uz drugi (drugi po potrebi okrenut 180°).</div>
+    </div>
+  </div>
 
   <!-- Part inspection modal -->
   <div id="partModal" class="modal" hidden>
@@ -2303,7 +2393,7 @@ class MaxRectsBin {
 function nestParts(opts) {
   const {
     sheetW, sheetH, margin = 0, gap = 0,
-    allowRotate = true, maxTotal = 20000, parts = [],
+    allowRotate = true, maxTotal = 20000, parts = [], order = 'priority',
   } = opts;
 
   if (!(sheetW > 0) || !(sheetH > 0)) {
@@ -2329,6 +2419,14 @@ function nestParts(opts) {
     if (pa !== pb) return pa - pb; // 1 = highest priority
     return (b.w * b.h) - (a.w * a.h); // bigger first
   };
+  const byAreaDesc = (a, b) => (b.w * b.h) - (a.w * a.h);
+  const byAreaAsc = (a, b) => (a.w * a.h) - (b.w * b.h);
+  // Alternative fill orders produce the "other" sheet variants:
+  //   'big'   - priorities ignored, biggest parts first
+  //   'small' - fillers flood the sheet first (small parts up), fixed after
+  const fixedCmp = order === 'priority' ? byPriorityThenArea : byAreaDesc;
+  const fillerCmp = order === 'small' ? byAreaAsc : (order === 'big' ? byAreaDesc : byPriorityThenArea);
+  const fillersFirst = order === 'small';
 
   const tryPlace = (part) => {
     const node = bin.insert(part.w + gap, part.h + gap, allowRotate);
@@ -2347,38 +2445,48 @@ function nestParts(opts) {
     return true;
   };
 
-  // 1. Fixed parts
-  const fixed = parts.filter((p) => p.mode !== 'filler').slice().sort(byPriorityThenArea);
-  for (const part of fixed) {
-    const want = Math.max(0, Math.floor(part.count || 0));
-    let missed = 0;
-    for (let k = 0; k < want; k++) {
-      if (total >= maxTotal) {
-        capped = true;
-        missed = want - k;
-        break;
+  const placeFixed = () => {
+    const fixed = parts.filter((p) => p.mode !== 'filler').slice().sort(fixedCmp);
+    for (const part of fixed) {
+      const want = Math.max(0, Math.floor(part.count || 0));
+      let missed = 0;
+      for (let k = 0; k < want; k++) {
+        if (total >= maxTotal) {
+          capped = true;
+          missed = want - k;
+          break;
+        }
+        if (!tryPlace(part)) {
+          missed = want - k;
+          break;
+        }
       }
-      if (!tryPlace(part)) {
-        missed = want - k;
-        break;
-      }
+      if (missed > 0) unplaced.push({ id: part.id, count: missed });
     }
-    if (missed > 0) unplaced.push({ id: part.id, count: missed });
-  }
+  };
 
-  // 2. Filler parts, in priority order: fill with the most important first.
-  const fillers = parts.filter((p) => p.mode === 'filler').slice().sort(byPriorityThenArea);
-  for (const part of fillers) {
-    const cap = part.maxCount && part.maxCount > 0 ? Math.floor(part.maxCount) : Infinity;
-    let placed = placedCounts[part.id] || 0;
-    while (placed < cap) {
-      if (total >= maxTotal) {
-        capped = true;
-        break;
+  const placeFillers = () => {
+    const fillers = parts.filter((p) => p.mode === 'filler').slice().sort(fillerCmp);
+    for (const part of fillers) {
+      const cap = part.maxCount && part.maxCount > 0 ? Math.floor(part.maxCount) : Infinity;
+      let placed = placedCounts[part.id] || 0;
+      while (placed < cap) {
+        if (total >= maxTotal) {
+          capped = true;
+          break;
+        }
+        if (!tryPlace(part)) break;
+        placed += 1;
       }
-      if (!tryPlace(part)) break;
-      placed += 1;
     }
+  };
+
+  if (fillersFirst) {
+    placeFillers();
+    placeFixed();
+  } else {
+    placeFixed();
+    placeFillers();
   }
 
   return {
@@ -2392,6 +2500,215 @@ function nestParts(opts) {
 }
 
 module.exports = { MaxRectsBin, nestParts };
+
+})(module);
+return module.exports; })();
+__mods['pair'] = (function () { const module = { exports: {} };
+(function (module) {
+'use strict';
+
+/*
+ * Duo-block layout: place two part outlines (the second optionally rotated
+ * 180 degrees - never mirrored) so their combined bounding box is as small
+ * as possible, keeping at least `gap` between them. This is how L-profiles
+ * and left/right pairs nest head-to-toe.
+ *
+ * The search uses column/row height profiles sampled from the outlines:
+ *  - vertical stack: B above A, sliding along X; the minimal Y separation is
+ *    max over overlapping columns of (topA - botB) + gap
+ *  - horizontal stack: B right of A, sliding along Y, using row profiles
+ * Both role orders and both B rotations are tried; the packer's own 90-degree
+ * rotation of the whole block covers the remaining orientations.
+ */
+
+/**
+ * Sample column/row profiles of an outline normalized to [0..w]x[0..h].
+ * cell is the absolute grid size in mm.
+ */
+function outlineProfiles(polys, w, h, cell) {
+  const cols = Math.max(1, Math.ceil(w / cell));
+  const rows = Math.max(1, Math.ceil(h / cell));
+  const top = new Array(cols).fill(-Infinity);
+  const bot = new Array(cols).fill(Infinity);
+  const left = new Array(rows).fill(Infinity);
+  const right = new Array(rows).fill(-Infinity);
+  const stamp = (x, y) => {
+    const c = Math.min(cols - 1, Math.max(0, Math.floor(x / cell)));
+    const r = Math.min(rows - 1, Math.max(0, Math.floor(y / cell)));
+    if (y > top[c]) top[c] = y;
+    if (y < bot[c]) bot[c] = y;
+    if (x < left[r]) left[r] = x;
+    if (x > right[r]) right[r] = x;
+  };
+  for (const poly of polys) {
+    for (let i = 0; i < poly.length; i++) {
+      const [x1, y1] = poly[i];
+      if (i === 0) {
+        stamp(x1, y1);
+        continue;
+      }
+      const [x0, y0] = poly[i - 1];
+      const len = Math.hypot(x1 - x0, y1 - y0);
+      const n = Math.max(1, Math.ceil(len / (cell / 2)));
+      for (let k = 1; k <= n; k++) {
+        const t = k / n;
+        stamp(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t);
+      }
+    }
+  }
+  return { cols, rows, cell, w, h, top, bot, left, right };
+}
+
+/** Profiles of the same outline rotated 180 degrees ((x,y) -> (w-x, h-y)). */
+function rotate180Profiles(p) {
+  const n = p.cols;
+  const m = p.rows;
+  const top = new Array(n);
+  const bot = new Array(n);
+  const left = new Array(m);
+  const right = new Array(m);
+  for (let c = 0; c < n; c++) {
+    const s = n - 1 - c;
+    top[c] = p.bot[s] === Infinity ? -Infinity : p.h - p.bot[s];
+    bot[c] = p.top[s] === -Infinity ? Infinity : p.h - p.top[s];
+  }
+  for (let r = 0; r < m; r++) {
+    const s = m - 1 - r;
+    left[r] = p.right[s] === -Infinity ? Infinity : p.w - p.right[s];
+    right[r] = p.left[s] === Infinity ? -Infinity : p.w - p.left[s];
+  }
+  return { cols: n, rows: m, cell: p.cell, w: p.w, h: p.h, top, bot, left, right };
+}
+
+/** B stacked above A, sliding along X. Returns best {area, layout} or null. */
+function sweepVertical(A, B, gap) {
+  let best = null;
+  const cell = A.cell;
+  const lo = -B.cols;
+  const hi = A.cols;
+  for (let off = lo; off <= hi; off++) {
+    let need = -Infinity;
+    for (let cB = 0; cB < B.cols; cB++) {
+      const cA = cB + off;
+      if (cA < 0 || cA >= A.cols) continue;
+      if (A.top[cA] === -Infinity || B.bot[cB] === Infinity) continue;
+      const d = A.top[cA] - B.bot[cB];
+      if (d > need) need = d;
+    }
+    const xB = off * cell;
+    const yB = need === -Infinity ? 0 : need + gap;
+    const minX = Math.min(0, xB);
+    const minY = Math.min(0, yB);
+    const W = Math.max(A.w, xB + B.w) - minX;
+    const H = Math.max(A.h, yB + B.h) - minY;
+    const area = W * H;
+    if (!best || area < best.area) {
+      best = {
+        area,
+        w: W,
+        h: H,
+        aOx: -minX,
+        aOy: -minY,
+        bOx: xB - minX,
+        bOy: yB - minY,
+      };
+    }
+  }
+  return best;
+}
+
+/** B placed right of A, sliding along Y (row profiles). */
+function sweepHorizontal(A, B, gap) {
+  let best = null;
+  const cell = A.cell;
+  const lo = -B.rows;
+  const hi = A.rows;
+  for (let off = lo; off <= hi; off++) {
+    let need = -Infinity;
+    for (let rB = 0; rB < B.rows; rB++) {
+      const rA = rB + off;
+      if (rA < 0 || rA >= A.rows) continue;
+      if (A.right[rA] === -Infinity || B.left[rB] === Infinity) continue;
+      const d = A.right[rA] - B.left[rB];
+      if (d > need) need = d;
+    }
+    const yB = off * cell;
+    const xB = need === -Infinity ? 0 : need + gap;
+    const minX = Math.min(0, xB);
+    const minY = Math.min(0, yB);
+    const W = Math.max(A.w, xB + B.w) - minX;
+    const H = Math.max(A.h, yB + B.h) - minY;
+    const area = W * H;
+    if (!best || area < best.area) {
+      best = {
+        area,
+        w: W,
+        h: H,
+        aOx: -minX,
+        aOy: -minY,
+        bOx: xB - minX,
+        bOy: yB - minY,
+      };
+    }
+  }
+  return best;
+}
+
+/**
+ * Best duo layout for two parts.
+ * @param {{w,h,outline}} a  part A (outline normalized to its bbox)
+ * @param {{w,h,outline}} b  part B (may be the same object for self-pairing)
+ * @param {number} gap       minimum spacing between the two parts (mm)
+ * @returns {{w,h,area, a:{ox,oy,rot180}, b:{ox,oy,rot180}}}
+ *   Offsets are the parts' bbox minima inside the duo box. Never null - the
+ *   worst case degenerates to a side-by-side layout.
+ */
+function bestDuoLayout(a, b, gap) {
+  const cell = Math.max(0.5, Math.min(a.w, a.h, b.w, b.h) / 48);
+  const pa = outlineProfiles(a.outline, a.w, a.h, cell);
+  const pb = outlineProfiles(b.outline, b.w, b.h, cell);
+  const pa180 = rotate180Profiles(pa);
+  const pb180 = rotate180Profiles(pb);
+
+  let best = null;
+  const consider = (res, aRot, bRot, swap) => {
+    if (!res) return;
+    if (best && res.area >= best.area) return;
+    // When roles are swapped, res's "A" slot holds part b.
+    best = {
+      area: res.area,
+      w: res.w,
+      h: res.h,
+      a: swap
+        ? { ox: res.bOx, oy: res.bOy, rot180: aRot }
+        : { ox: res.aOx, oy: res.aOy, rot180: aRot },
+      b: swap
+        ? { ox: res.aOx, oy: res.aOy, rot180: bRot }
+        : { ox: res.bOx, oy: res.bOy, rot180: bRot },
+    };
+  };
+
+  for (const [pB, bRot] of [[pb, false], [pb180, true]]) {
+    consider(sweepVertical(pa, pB, gap), false, bRot, false);
+    consider(sweepHorizontal(pa, pB, gap), false, bRot, false);
+  }
+  // Swapped roles (B as the base) - covers "A above B" stacks.
+  for (const [pA, aRot] of [[pa, false], [pa180, true]]) {
+    consider(sweepVertical(pb, pA, gap), aRot, false, true);
+    consider(sweepHorizontal(pb, pA, gap), aRot, false, true);
+  }
+  return best;
+}
+
+/**
+ * Area a duo layout must beat: the two parts packed as separate rectangles
+ * (each inflated by the gap, as the packer sees them).
+ */
+function separateArea(a, b, gap) {
+  return (a.w + gap) * (a.h + gap) + (b.w + gap) * (b.h + gap);
+}
+
+module.exports = { outlineProfiles, rotate180Profiles, bestDuoLayout, separateArea };
 
 })(module);
 return module.exports; })();
@@ -2410,6 +2727,7 @@ const {
   minAreaRect, bboxOfPoints, rotatePoint, rotatePoints, convexHull, polygonArea, simplifyPolyline,
 } = __req('geometry');
 const { nestParts } = __req('nest');
+const { bestDuoLayout, separateArea } = __req('pair');
 
 const SAMPLE_QUALITY = 4; // matches writeDxf flattening quality
 
@@ -2503,6 +2821,145 @@ function round3(n) {
 
 
 /**
+ * Resolve the effective part list for nesting from the library and the
+ * active set. A null set means "all enabled parts with their own settings";
+ * a set contributes only its member parts, with the set's per-part settings.
+ */
+function applySet(parts, set) {
+  if (!set) return parts.filter((p) => p.enabled);
+  const items = (set && set.items) || {};
+  const out = [];
+  for (const p of parts) {
+    const it = items[p.id];
+    if (!it) continue;
+    out.push({
+      ...p,
+      enabled: true,
+      priority: Number.isFinite(it.priority) ? it.priority : p.priority,
+      mode: it.mode === 'fixed' ? 'fixed' : 'filler',
+      count: Number.isFinite(it.count) ? it.count : p.count,
+      maxCount: Number.isFinite(it.maxCount) ? it.maxCount : p.maxCount,
+    });
+  }
+  return out;
+}
+
+const prioOf = (p) => (Number.isFinite(p.priority) ? p.priority : 999);
+
+/**
+ * Build the rectangle "units" the packer works with:
+ *  - paired parts (pairId) always form a duo block, so both land on the same
+ *    sheet in equal counts, laid out via bestDuoLayout (second part may be
+ *    turned 180 degrees - never mirrored);
+ *  - a single part whose outline interlocks with itself (saving >= 8%) is
+ *    packed two-at-a-time head-to-toe, with a single unit for the remainder.
+ */
+function buildUnits(parts, gap) {
+  const notes = [];
+  const units = [];
+  const used = new Set();
+  const partById = {};
+  for (const p of parts) partById[p.id] = p;
+
+  const duoCache = {};
+  // Parts without a stored outline (or degenerate ones) profile as plain
+  // rectangles - the duo then degenerates to a safe side-by-side layout.
+  const shellOf = (p) => ({
+    w: p.w,
+    h: p.h,
+    outline: (Array.isArray(p.outline) && p.outline.length > 0)
+      ? p.outline
+      : [[[0, 0], [p.w, 0], [p.w, p.h], [0, p.h], [0, 0]]],
+  });
+  const duoFor = (a, b) => {
+    const key = a.id + '|' + b.id;
+    if (!duoCache[key]) duoCache[key] = bestDuoLayout(shellOf(a), shellOf(b), gap);
+    return duoCache[key];
+  };
+  const memberOf = (part, slot) => ({ part, rot180: !!slot.rot180, ox: slot.ox, oy: slot.oy });
+
+  for (const p of parts) {
+    if (used.has(p.id)) continue;
+    const partner = p.pairId && p.pairId !== p.id ? partById[p.pairId] : null;
+    if (p.pairId && p.pairId !== p.id && !partner) {
+      notes.push('Par "' + p.name + '": partner nije u aktivnom setu - slaže se pojedinačno.');
+    }
+
+    if (partner && !used.has(partner.id)) {
+      used.add(p.id);
+      used.add(partner.id);
+      const lay = duoFor(p, partner);
+      const isFiller = p.mode === 'filler' && partner.mode === 'filler';
+      const maxA = p.maxCount || 0;
+      const maxB = partner.maxCount || 0;
+      let maxCount = 0;
+      if (maxA > 0 && maxB > 0) maxCount = Math.min(maxA, maxB);
+      else maxCount = Math.max(maxA, maxB);
+      units.push({
+        uid: 'd:' + p.id + ':' + partner.id,
+        w: lay.w,
+        h: lay.h,
+        area: p.area + partner.area,
+        priority: Math.min(prioOf(p), prioOf(partner)),
+        mode: isFiller ? 'filler' : 'fixed',
+        count: Math.min(Math.max(0, Math.floor(p.count || 0)), Math.max(0, Math.floor(partner.count || 0))),
+        maxCount,
+        members: [memberOf(p, lay.a), memberOf(partner, lay.b)],
+      });
+      continue;
+    }
+
+    used.add(p.id);
+    const singleUnit = {
+      uid: 's:' + p.id,
+      w: p.w,
+      h: p.h,
+      area: p.area,
+      priority: prioOf(p),
+      mode: p.mode,
+      count: p.count,
+      maxCount: p.maxCount,
+      members: [{ part: p, rot180: false, ox: 0, oy: 0 }],
+    };
+
+    const lay = duoFor(p, p);
+    const selfDuoGood = lay
+      && (lay.w + gap) * (lay.h + gap) <= 0.92 * separateArea(p, p, gap);
+    if (!selfDuoGood) {
+      units.push(singleUnit);
+      continue;
+    }
+
+    const duoUnit = {
+      uid: 'd:' + p.id + ':' + p.id,
+      w: lay.w,
+      h: lay.h,
+      area: 2 * p.area,
+      priority: prioOf(p),
+      mode: p.mode,
+      count: 0,
+      maxCount: 0,
+      members: [memberOf(p, lay.a), memberOf(p, lay.b)],
+    };
+    if (p.mode !== 'filler') {
+      const want = Math.max(0, Math.floor(p.count || 0));
+      duoUnit.count = Math.floor(want / 2);
+      singleUnit.count = want % 2;
+      if (duoUnit.count > 0) units.push(duoUnit);
+      if (singleUnit.count > 0) units.push(singleUnit);
+    } else if (p.maxCount && p.maxCount > 0) {
+      // An exact cap across two unit types cannot be guaranteed - keep the
+      // cap exact with singles only.
+      units.push(singleUnit);
+    } else {
+      units.push(duoUnit);
+      units.push(singleUnit);
+    }
+  }
+  return { units, notes };
+}
+
+/**
  * Run the nesting and produce the sheet DXF plus preview data.
  *
  * @param {object} opts
@@ -2521,7 +2978,12 @@ function generateSheet(opts) {
   const {
     sheetW, sheetH, margin = 10, gap = 8,
     allowRotate = true, addFrame = false, parts = [], maxTotal,
+    order = 'priority',
   } = opts;
+
+  const { units, notes } = buildUnits(parts, gap);
+  const unitsById = {};
+  for (const u of units) unitsById[u.uid] = u;
 
   const nest = nestParts({
     sheetW,
@@ -2530,15 +2992,16 @@ function generateSheet(opts) {
     gap,
     allowRotate,
     maxTotal,
-    parts: parts.map((p) => ({
-      id: p.id,
-      w: p.w,
-      h: p.h,
-      area: p.area,
-      priority: p.priority,
-      mode: p.mode,
-      count: p.count,
-      maxCount: p.maxCount,
+    order,
+    parts: units.map((u) => ({
+      id: u.uid,
+      w: u.w,
+      h: u.h,
+      area: u.area,
+      priority: u.priority,
+      mode: u.mode,
+      count: u.count,
+      maxCount: u.maxCount,
     })),
   });
 
@@ -2574,36 +3037,58 @@ function generateSheet(opts) {
 
   const outEntities = [];
   const placements = [];
+  const placedByPart = {};
 
   for (const pl of nest.placements) {
-    const c = getPart(pl.id);
-    const rotDeg = (c.part.preRotDeg || 0) + (pl.rotated ? 90 : 0);
-    const or = getOrientation(pl.id, rotDeg);
-    const dx = pl.x - or.bb.minX;
-    const dy = pl.y - or.bb.minY;
+    const u = unitsById[pl.id];
+    for (const m of u.members) {
+      const part = m.part;
+      const mw = part.w;
+      const mh = part.h;
+      // Member bbox position inside the (possibly 90-degree-rotated) unit.
+      let gx;
+      let gy;
+      if (!pl.rotated) {
+        gx = pl.x + m.ox;
+        gy = pl.y + m.oy;
+      } else {
+        // Unit box (w x h) turned 90 CCW: local (x,y) -> (h - y, x).
+        gx = pl.x + (u.h - m.oy - mh);
+        gy = pl.y + m.ox;
+      }
+      const turn = (m.rot180 ? 180 : 0) + (pl.rotated ? 90 : 0);
+      const rotDeg = (part.preRotDeg || 0) + turn;
+      const or = getOrientation(part.id, rotDeg);
+      const dx = gx - or.bb.minX;
+      const dy = gy - or.bb.minY;
 
-    for (const e of c.entities) {
-      outEntities.push(transformEntity(e, { rotDeg, dx, dy }));
+      const c = getPart(part.id);
+      for (const e of c.entities) {
+        outEntities.push(transformEntity(e, { rotDeg, dx, dy }));
+      }
+      placedByPart[part.id] = (placedByPart[part.id] || 0) + 1;
+
+      placements.push({
+        id: part.id,
+        name: part.name,
+        x: gx,
+        y: gy,
+        w: pl.rotated ? mh : mw,
+        h: pl.rotated ? mw : mh,
+        rotated: turn === 90 || turn === 270,
+        turn,
+        // Exact rigid transform (entity' = R(rotDeg)*entity + (dx,dy)) -
+        // enough to re-create the identical sheet DXF later without storing
+        // the file.
+        rotDeg,
+        dx,
+        dy,
+        outline: or.rotated.map((poly) => simplifyPolyline(
+          poly.map(([x, y]) => [round3(x + dx), round3(y + dy)]),
+          0.1,
+        )),
+      });
     }
-
-    placements.push({
-      id: pl.id,
-      name: c.part.name,
-      x: pl.x,
-      y: pl.y,
-      w: pl.w,
-      h: pl.h,
-      rotated: pl.rotated,
-      // Exact rigid transform (entity' = R(rotDeg)*entity + (dx,dy)) - enough
-      // to re-create the identical sheet DXF later without storing the file.
-      rotDeg,
-      dx,
-      dy,
-      outline: or.rotated.map((poly) => simplifyPolyline(
-        poly.map(([x, y]) => [round3(x + dx), round3(y + dy)]),
-        0.1,
-      )),
-    });
   }
 
   if (addFrame) {
@@ -2621,28 +3106,67 @@ function generateSheet(opts) {
   }
 
   const summary = [];
-  for (const id of Object.keys(nest.placedCounts)) {
-    const c = getPart(id);
-    summary.push({ id, name: c.part.name, count: nest.placedCounts[id] });
+  for (const id of Object.keys(placedByPart)) {
+    const p = parts.find((q) => q.id === id);
+    summary.push({ id, name: p ? p.name : id, count: placedByPart[id] });
   }
   summary.sort((a, b) => b.count - a.count);
 
-  const unplaced = nest.unplaced.map((u) => {
-    const p = parts.find((q) => q.id === u.id);
-    return { id: u.id, name: p ? p.name : u.id, count: u.count };
+  // Unit-level shortfalls map back to their member parts (a missed duo
+  // means one missing copy of EACH member).
+  const unplacedByPart = {};
+  for (const u of nest.unplaced) {
+    const unit = unitsById[u.id];
+    if (!unit) continue;
+    for (const m of unit.members) {
+      unplacedByPart[m.part.id] = (unplacedByPart[m.part.id] || 0) + u.count;
+    }
+  }
+  const unplaced = Object.keys(unplacedByPart).map((id) => {
+    const p = parts.find((q) => q.id === id);
+    return { id, name: p ? p.name : id, count: unplacedByPart[id] };
   });
 
   return {
     dxf: outEntities.length > 0 ? writeDxf(outEntities, { layerColors }) : null,
     placements,
     unplaced,
-    placedCounts: nest.placedCounts,
+    placedCounts: placedByPart,
     utilization: nest.utilization,
-    totalPlaced: nest.placements.length,
+    totalPlaced: placements.length,
     summary,
+    notes,
     capped: nest.capped,
     maxTotal: nest.maxTotal,
   };
+}
+
+/**
+ * Generate up to three different sheets for the same input:
+ *  1. by priorities (the standard order),
+ *  2. biggest parts first (priorities ignored),
+ *  3. small parts flood the sheet first.
+ * Identical results are deduplicated.
+ */
+function generateVariants(opts) {
+  const defs = [
+    { variant: 'prioriteti', variantLabel: 'Po prioritetima', order: 'priority' },
+    { variant: 'krupno', variantLabel: 'Krupni komadi', order: 'big' },
+    { variant: 'sitno', variantLabel: 'Sitni komadi', order: 'small' },
+  ];
+  const out = [];
+  const seen = new Set();
+  for (const d of defs) {
+    const res = generateSheet({ ...opts, order: d.order });
+    if (res.totalPlaced === 0) continue;
+    const sig = JSON.stringify(res.placements.map((p) => [
+      p.id, Math.round(p.x * 10), Math.round(p.y * 10), p.turn,
+    ]).sort());
+    if (seen.has(sig)) continue;
+    seen.add(sig);
+    out.push({ ...res, variant: d.variant, variantLabel: d.variantLabel });
+  }
+  return out;
 }
 
 /**
@@ -2702,7 +3226,9 @@ function buildSheetDxf(opts) {
   return writeDxf(outEntities, { layerColors });
 }
 
-module.exports = { analyzePart, generateSheet, buildSheetDxf };
+module.exports = {
+  analyzePart, generateSheet, generateVariants, buildSheetDxf, buildUnits, applySet,
+};
 
 })(module);
 return module.exports; })();
@@ -2715,7 +3241,8 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
  * and SAMPLE_FILES/SAMPLE_CONFIG are provided by the bundle.
  */
 (function () {
-  const { analyzePart, buildSheetDxf, generateSheet } = __req('parts');
+  const { analyzePart, applySet, buildSheetDxf, generateVariants } = __req('parts');
+  const PAIR_MIRRORED = ['priority', 'mode', 'count', 'maxCount'];
 
   // ---- storage (localStorage with in-memory fallback) ----
   const mem = {};
@@ -2755,9 +3282,10 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
       id: newId(),
       name: sanitizeName(name),
       priority: 5,
-      mode: 'fixed',
+      mode: 'filler',
       count: 1,
       maxCount: 0,
+      pairId: null,
       enabled: true,
       preRotDeg: info.preRotDeg,
       w: Math.round(info.w * 1000) / 1000,
@@ -2807,6 +3335,21 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
     const entry = load('history', []).find((s) => s.id === id);
     if (!entry) throw new Error('Ploča ne postoji u povijesti.');
     return entry;
+  }
+
+  function loadSetsState() {
+    const s = load('sets', { sets: [], activeSetId: null });
+    if (!Array.isArray(s.sets)) s.sets = [];
+    for (const set of s.sets) {
+      if (!set.items || typeof set.items !== 'object') set.items = {};
+    }
+    if (s.activeSetId && !s.sets.some((x) => x.id === s.activeSetId)) s.activeSetId = null;
+    return s;
+  }
+
+  function saveSetsState(s) {
+    store('sets', s);
+    return s;
   }
 
   function sheetDxf(entry) {
@@ -2885,9 +3428,10 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
       const lib = getLib();
       const entry = lib.find((p) => p.id === id);
       if (!entry) throw new Error('Part ne postoji.');
+      const mirrored = {};
       for (const [k, v] of Object.entries(patch || {})) {
         if (k === 'name') entry.name = sanitizeName(v);
-        else if (k === 'mode') entry.mode = v === 'filler' ? 'filler' : 'fixed';
+        else if (k === 'mode') entry.mode = v === 'fixed' ? 'fixed' : 'filler';
         else if (k === 'enabled') entry.enabled = !!v;
         else if (k === 'priority' || k === 'count' || k === 'maxCount') {
           const n = Math.floor(Number(v));
@@ -2895,14 +3439,105 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
           if (k === 'count') entry.count = Math.min(999, Math.max(0, Number.isFinite(n) ? n : 1));
           if (k === 'maxCount') entry.maxCount = Math.min(9999, Math.max(0, Number.isFinite(n) ? n : 0));
         }
+        if (PAIR_MIRRORED.indexOf(k) !== -1) mirrored[k] = entry[k];
+      }
+      if (entry.pairId && Object.keys(mirrored).length > 0) {
+        const partner = lib.find((p) => p.id === entry.pairId);
+        if (partner) Object.assign(partner, mirrored);
       }
       store('library', lib);
       return pub(entry);
     },
 
+    pairPart: async (idA, idB) => {
+      const lib = getLib();
+      const a = lib.find((p) => p.id === idA);
+      if (!a) throw new Error('Part ne postoji.');
+      if (a.pairId) {
+        const old = lib.find((p) => p.id === a.pairId);
+        if (old) old.pairId = null;
+        a.pairId = null;
+      }
+      if (idB) {
+        const b = lib.find((p) => p.id === idB);
+        if (!b || b.id === a.id) throw new Error('Neispravan par.');
+        if (b.pairId) {
+          const old = lib.find((p) => p.id === b.pairId);
+          if (old) old.pairId = null;
+        }
+        a.pairId = b.id;
+        b.pairId = a.id;
+        for (const k of PAIR_MIRRORED) b[k] = a[k];
+      }
+      store('library', lib);
+      return lib.map(pub);
+    },
+
     removePart: async (id) => {
-      store('library', getLib().filter((p) => p.id !== id));
+      const lib = getLib();
+      const entry = lib.find((p) => p.id === id);
+      if (entry && entry.pairId) {
+        const partner = lib.find((p) => p.id === entry.pairId);
+        if (partner) partner.pairId = null;
+      }
+      store('library', lib.filter((p) => p.id !== id));
+      const sets = loadSetsState();
+      for (const s of sets.sets) delete s.items[id];
+      saveSetsState(sets);
       return true;
+    },
+
+    listSets: async () => loadSetsState(),
+    createSet: async (name) => {
+      const s = loadSetsState();
+      const set = { id: newId(), name: sanitizeName(name || ('Set ' + (s.sets.length + 1))), items: {} };
+      s.sets.push(set);
+      s.activeSetId = set.id;
+      return saveSetsState(s);
+    },
+    renameSet: async (id, name) => {
+      const s = loadSetsState();
+      const set = s.sets.find((x) => x.id === id);
+      if (set) set.name = sanitizeName(name);
+      return saveSetsState(s);
+    },
+    removeSet: async (id) => {
+      const s = loadSetsState();
+      s.sets = s.sets.filter((x) => x.id !== id);
+      if (s.activeSetId === id) s.activeSetId = null;
+      return saveSetsState(s);
+    },
+    activateSet: async (id) => {
+      const s = loadSetsState();
+      s.activeSetId = (id && s.sets.some((x) => x.id === id)) ? id : null;
+      return saveSetsState(s);
+    },
+    setSetItem: async (setId, partId, patch) => {
+      const s = loadSetsState();
+      const set = s.sets.find((x) => x.id === setId);
+      if (!set) throw new Error('Set ne postoji.');
+      const part = getLib().find((p) => p.id === partId);
+      if (!part) throw new Error('Part ne postoji.');
+      if (patch === null) {
+        delete set.items[partId];
+        if (part.pairId) delete set.items[part.pairId];
+      } else {
+        const base = set.items[partId]
+          || { priority: part.priority, mode: part.mode, count: part.count, maxCount: part.maxCount };
+        const merged = { ...base };
+        for (const k of PAIR_MIRRORED) {
+          if (patch && Object.prototype.hasOwnProperty.call(patch, k)) {
+            const n = Math.floor(Number(patch[k]));
+            if (k === 'mode') merged.mode = patch.mode === 'fixed' ? 'fixed' : 'filler';
+            else if (k === 'priority') merged.priority = Math.min(99, Math.max(1, Number.isFinite(n) ? n : 5));
+            else if (k === 'count') merged.count = Math.min(999, Math.max(0, Number.isFinite(n) ? n : 1));
+            else if (k === 'maxCount') merged.maxCount = Math.min(9999, Math.max(0, Number.isFinite(n) ? n : 0));
+          }
+        }
+        set.items[partId] = merged;
+        if (part.pairId) set.items[part.pairId] = { ...merged };
+      }
+      return saveSetsState(s);
     },
 
     getSettings: async () => getSettings(),
@@ -2929,95 +3564,111 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
       const width = Number(req && req.width);
       const height = Number(req && req.height);
       if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-        return { ok: false, message: 'Upišite ispravnu duljinu i širinu ploče (mm).' };
+        return { ok: false, message: 'Upi\u0161ite ispravnu duljinu i \u0161irinu plo\u010de (mm).' };
       }
       if (width > 100000 || height > 100000) {
-        return { ok: false, message: 'Dimenzije ploče su prevelike.' };
+        return { ok: false, message: 'Dimenzije plo\u010de su prevelike.' };
       }
       const settings = getSettings();
-      const active = getLib().filter((p) => p.enabled);
-      if (active.length === 0) {
-        return { ok: false, message: 'Nema uključenih partova. Dodajte ih u PRIPREMI.' };
+      const setsState = loadSetsState();
+      const set = setsState.sets.find((x) => x.id === setsState.activeSetId) || null;
+      const effective = applySet(getLib(), set);
+      if (effective.length === 0) {
+        return {
+          ok: false,
+          message: set
+            ? 'Aktivni set "' + set.name + '" je prazan. Dodajte partove u set u PRIPREMI.'
+            : 'Nema uklju\u010denih partova. Dodajte ih u PRIPREMI.',
+        };
       }
-      let result;
+      let variants;
       const t0 = performance.now();
       try {
-        result = generateSheet({
+        variants = generateVariants({
           sheetW: width,
           sheetH: height,
           margin: settings.margin,
           gap: settings.gap,
           allowRotate: settings.allowRotate,
           addFrame: settings.addFrame,
-          parts: active,
+          parts: effective,
         });
       } catch (e) {
         return { ok: false, message: (e && e.message) || String(e) };
       }
       const elapsedMs = Math.round(performance.now() - t0);
-      if (result.totalPlaced === 0) {
+      if (variants.length === 0) {
         return {
           ok: false,
-          message: 'Ništa ne stane na ploču ' + width + ' x ' + height + ' mm. Provjerite dimenzije i rub.',
-          unplaced: result.unplaced,
+          message: 'Ni\u0161ta ne stane na plo\u010du ' + height + ' x ' + width + ' mm. Provjerite dimenzije i rub.',
         };
       }
       const now = new Date();
-      const id = newId();
-      const fileName = 'Ploca_' + Math.round(width) + 'x' + Math.round(height)
-        + '_' + now.getFullYear() + '-' + pad2(now.getMonth() + 1) + '-' + pad2(now.getDate())
-        + '_' + pad2(now.getHours()) + '-' + pad2(now.getMinutes()) + '-' + pad2(now.getSeconds())
-        + '_' + id.slice(-4) + '.dxf';
+      const batch = newId();
+      const stamp = now.getFullYear() + '-' + pad2(now.getMonth() + 1) + '-' + pad2(now.getDate())
+        + '_' + pad2(now.getHours()) + '-' + pad2(now.getMinutes()) + '-' + pad2(now.getSeconds());
 
-      const entry = {
-        id,
-        date: now.toISOString(),
-        width,
-        height,
-        fileName,
-        addFrame: !!settings.addFrame,
-        placements: result.placements.map((pl) => ({
-          id: pl.id,
-          x: Math.round(pl.x * 1000) / 1000,
-          y: Math.round(pl.y * 1000) / 1000,
-          w: Math.round(pl.w * 1000) / 1000,
-          h: Math.round(pl.h * 1000) / 1000,
-          rotated: pl.rotated,
-          rotDeg: pl.rotDeg,
-          dx: pl.dx,
-          dy: pl.dy,
-        })),
-        summary: result.summary,
-        unplaced: result.unplaced,
-        utilization: Math.round(result.utilization * 1000) / 1000,
-        totalPlaced: result.totalPlaced,
-        capped: result.capped,
-      };
+      const entries = [];
+      const sheets = [];
+      for (let vi = 0; vi < variants.length; vi++) {
+        const result = variants[vi];
+        const id = newId();
+        const fileName = 'Ploca_' + Math.round(height) + 'x' + Math.round(width)
+          + '_' + stamp + '_v' + (vi + 1) + '_' + id.slice(-4) + '.dxf';
+        entries.push({
+          id,
+          batch,
+          variant: result.variant,
+          variantLabel: result.variantLabel,
+          date: now.toISOString(),
+          width,
+          height,
+          fileName,
+          addFrame: !!settings.addFrame,
+          setName: set ? set.name : null,
+          placements: result.placements.map((pl) => ({
+            id: pl.id,
+            x: Math.round(pl.x * 1000) / 1000,
+            y: Math.round(pl.y * 1000) / 1000,
+            w: Math.round(pl.w * 1000) / 1000,
+            h: Math.round(pl.h * 1000) / 1000,
+            rotated: pl.rotated,
+            turn: pl.turn,
+            rotDeg: pl.rotDeg,
+            dx: pl.dx,
+            dy: pl.dy,
+          })),
+          summary: result.summary,
+          unplaced: result.unplaced,
+          notes: result.notes,
+          utilization: Math.round(result.utilization * 1000) / 1000,
+          totalPlaced: result.totalPlaced,
+          capped: result.capped,
+        });
+        sheets.push({
+          sheetId: id,
+          batch,
+          variant: result.variant,
+          variantLabel: result.variantLabel,
+          fileName,
+          unplaced: result.unplaced,
+          notes: result.notes,
+          summary: result.summary,
+          utilization: result.utilization,
+          totalPlaced: result.totalPlaced,
+          capped: result.capped,
+          maxTotal: result.maxTotal,
+        });
+      }
+
       let history = load('history', []);
-      history.unshift(entry);
-      history = history.slice(0, 60);
+      history = entries.concat(history).slice(0, 60);
       if (!store('history', history)) {
         history = history.slice(0, 10);
         store('history', history);
       }
 
-      return {
-        ok: true,
-        sheetId: id,
-        width,
-        height,
-        fileName,
-        placements: result.placements,
-        unplaced: result.unplaced,
-        summary: result.summary,
-        utilization: result.utilization,
-        totalPlaced: result.totalPlaced,
-        capped: result.capped,
-        maxTotal: result.maxTotal,
-        elapsedMs,
-        opened: false,
-        openMessage: '',
-      };
+      return { ok: true, batch, width, height, sheets, elapsedMs, opened: false, openMessage: '' };
     },
 
     openSheet: async (id) => {
@@ -3039,7 +3690,7 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
     },
     pickExe: async () => null,
     pickDir: async () => null,
-    appInfo: async () => ({ version: '1.2.0 · web proba', dataDir: '' }),
+    appInfo: async () => ({ version: '1.3.0 · web proba', dataDir: '' }),
   };
 })();
 
@@ -3054,13 +3705,21 @@ const state = {
   partsById: {},
   settings: null,
   history: [],
-  lastGeneratedId: null,
+  sets: [],
+  activeSetId: null,
+  lastBatch: null,
   selectedSheetId: null,
 };
 
 const bridge = window.dino;
 const IS_WEB = !!(bridge && bridge.isWeb);
 const CAN_DRAG = !!(bridge && bridge.canDrag);
+
+const VARIANT_BADGE = {
+  prioriteti: '1 · PRIORITETI',
+  krupno: '2 · KRUPNO',
+  sitno: '3 · SITNO',
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -3079,6 +3738,11 @@ function parseNum(text) {
 function fmtMm(n) {
   // No thousands grouping - the shown value must round-trip through parseNum.
   return String(Math.round(n * 10) / 10).replace('.', ',');
+}
+
+/** Sheets display as DULJINA x ŠIRINA (the machine's long side first = Y). */
+function dimsText(entry) {
+  return fmtMm(entry.height) + ' × ' + fmtMm(entry.width) + ' mm';
 }
 
 function fmtDate(iso) {
@@ -3117,6 +3781,29 @@ function showToast(msg) {
   toastTimer = setTimeout(() => { t.hidden = true; }, 6000);
 }
 
+function activeSet() {
+  return state.sets.find((s) => s.id === state.activeSetId) || null;
+}
+
+/** Effective display params for a part under the active set (or globals). */
+function effectiveParams(part) {
+  const set = activeSet();
+  if (!set) return { inSelection: !!part.enabled, ...pick(part), fromSet: false };
+  const it = set.items && set.items[part.id];
+  if (!it) return { inSelection: false, ...pick(part), fromSet: true };
+  return {
+    inSelection: true,
+    priority: Number.isFinite(it.priority) ? it.priority : part.priority,
+    mode: it.mode === 'fixed' ? 'fixed' : 'filler',
+    count: Number.isFinite(it.count) ? it.count : part.count,
+    maxCount: Number.isFinite(it.maxCount) ? it.maxCount : part.maxCount,
+    fromSet: true,
+  };
+  function pick(p) {
+    return { priority: p.priority, mode: p.mode, count: p.count, maxCount: p.maxCount };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Tabs
 // ---------------------------------------------------------------------------
@@ -3136,17 +3823,30 @@ $('tabPriprema').addEventListener('click', () => showView('priprema'));
 // Sheet drawing (from compact placements + the part library outlines)
 // ---------------------------------------------------------------------------
 
+function turnOf(pl) {
+  if (Number.isFinite(pl.turn)) return ((pl.turn % 360) + 360) % 360;
+  return pl.rotated ? 90 : 0;
+}
+
+/** Map a point from part-outline coords into placement coords for a turn. */
+function turnPoint(part, turn, x, y) {
+  switch (turn) {
+    case 90: return [part.h - y, x];
+    case 180: return [part.w - x, part.h - y];
+    case 270: return [y, part.w - x];
+    default: return [x, y];
+  }
+}
+
 function placementPolys(pl) {
   const part = state.partsById[pl.id];
   if (!part || !part.outline) return null;
+  const turn = turnOf(pl);
   const polys = [];
   for (const poly of part.outline) {
     const out = [];
     for (const [px, py] of poly) {
-      // Library outline is normalized to [0..w]x[0..h]; a rotated placement
-      // turns the part 90 degrees CCW: (px,py) -> (h-py, px).
-      const x = pl.rotated ? (part.h - py) : px;
-      const y = pl.rotated ? px : py;
+      const [x, y] = turnPoint(part, turn, px, py);
       out.push([x + pl.x, y + pl.y]);
     }
     polys.push(out);
@@ -3202,16 +3902,15 @@ function drawSheetEntry(canvas, entry) {
     // Engraving text markings
     const part = state.partsById[pl.id];
     if (part && part.texts && part.texts.length) {
+      const turn = turnOf(pl);
       ctx.fillStyle = 'rgba(180, 195, 212, 0.85)';
       for (const t of part.texts) {
         const fontPx = (t.h || 5) * scale;
         if (fontPx < 3) continue; // unreadable at this zoom
-        const x = pl.rotated ? (part.h - t.y) : t.x;
-        const y = pl.rotated ? t.x : t.y;
-        const rot = (t.rot || 0) + (pl.rotated ? 90 : 0);
+        const [x, y] = turnPoint(part, turn, t.x, t.y);
         ctx.save();
         ctx.translate(tx(x + pl.x), ty(y + pl.y));
-        ctx.rotate(-(rot * Math.PI) / 180);
+        ctx.rotate(-(((t.rot || 0) + turn) * Math.PI) / 180);
         ctx.font = fontPx + 'px sans-serif';
         ctx.fillText(t.s, 0, 0);
         ctx.restore();
@@ -3221,19 +3920,39 @@ function drawSheetEntry(canvas, entry) {
 }
 
 // ---------------------------------------------------------------------------
-// Machine view: generate + offers
+// Machine view: set switcher, generate, offers
 // ---------------------------------------------------------------------------
+
+function renderSetBar() {
+  const bar = $('setBar');
+  bar.innerHTML = '';
+  const mk = (label, id) => {
+    const b = el('button', 'chip' + ((state.activeSetId || null) === id ? ' active' : ''), label);
+    b.addEventListener('click', async () => {
+      const res = await bridge.activateSet(id);
+      state.sets = res.sets;
+      state.activeSetId = res.activeSetId;
+      renderSetBar();
+      renderSetsList();
+      renderParts();
+      showToast(id ? 'Aktivan set: ' + (activeSet() || {}).name : 'Aktivno: svi uključeni partovi');
+    });
+    return b;
+  };
+  bar.appendChild(mk('SVI', null));
+  for (const s of state.sets) bar.appendChild(mk(s.name, s.id));
+}
 
 async function generate() {
   if ($('btnGenerate').disabled) return; // already running (Enter bypasses the button)
-  const width = parseNum($('inWidth').value);
-  const height = parseNum($('inHeight').value);
+  const len = parseNum($('inLen').value);   // DULJINA -> Y (sheetH)
+  const wid = parseNum($('inWid').value);   // ŠIRINA  -> X (sheetW)
   const status = $('genStatus');
   $('genWarn').hidden = true;
   status.hidden = false;
   status.className = 'status';
 
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+  if (!Number.isFinite(len) || !Number.isFinite(wid) || len <= 0 || wid <= 0) {
     status.classList.add('err');
     status.textContent = 'Upišite duljinu i širinu ploče u milimetrima.';
     return;
@@ -3241,31 +3960,24 @@ async function generate() {
 
   const btn = $('btnGenerate');
   btn.disabled = true;
-  status.textContent = 'Slažem ploču…';
+  status.textContent = 'Slažem 3 varijante ploče…';
   try {
-    const res = await bridge.generate({ width, height });
+    const res = await bridge.generate({ width: wid, height: len });
     if (!res.ok) {
       status.classList.add('err');
       status.textContent = res.message || 'Generiranje nije uspjelo.';
       return;
     }
     status.hidden = true;
-    state.lastGeneratedId = res.sheetId;
+    state.lastBatch = res.batch;
     await refreshHistory();
     renderOffers();
-    selectSheet(res.sheetId);
-
-    const msgs = [];
-    if (res.unplaced && res.unplaced.length > 0) {
-      msgs.push('NIJE STALO: ' + res.unplaced.map((u) => u.name + ' ×' + u.count).join(', '));
+    if (res.sheets && res.sheets.length > 0) selectSheet(res.sheets[0].sheetId);
+    if (res.openMessage) {
+      $('genWarn').textContent = res.openMessage;
+      $('genWarn').hidden = false;
     }
-    if (res.capped) {
-      msgs.push('Dosegnut je sigurnosni limit od ' + (res.maxTotal || '') + ' komada — ploča možda nije potpuno popunjena.');
-    }
-    if (res.openMessage) msgs.push(res.openMessage);
-    $('genWarn').textContent = msgs.join('  ·  ');
-    $('genWarn').hidden = msgs.length === 0;
-    if (res.opened) showToast('Otvoreno u CypCut-u: ' + res.fileName);
+    if (res.opened) showToast('Otvoreno u CypCut-u: ' + res.sheets[0].fileName);
   } catch (e) {
     status.classList.add('err');
     status.textContent = 'Greška: ' + (e && e.message ? e.message : e);
@@ -3281,17 +3993,18 @@ function dimsMatch(entry, w, h, tol) {
 }
 
 function currentMatches() {
-  const width = parseNum($('inWidth').value);
-  const height = parseNum($('inHeight').value);
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
+  const len = parseNum($('inLen').value);
+  const wid = parseNum($('inWid').value);
+  if (!Number.isFinite(len) || !Number.isFinite(wid) || len <= 0 || wid <= 0) return null;
   const tol = (state.settings && Number.isFinite(state.settings.histTol)) ? state.settings.histTol : 20;
-  const matches = state.history.filter((s) => dimsMatch(s, width, height, tol));
+  const matches = state.history.filter((s) => dimsMatch(s, wid, len, tol));
+  const isNew = (s) => (s.batch && s.batch === state.lastBatch) ? 0 : 1;
   matches.sort((a, b) => {
-    if (a.id === state.lastGeneratedId) return -1;
-    if (b.id === state.lastGeneratedId) return 1;
+    if (isNew(a) !== isNew(b)) return isNew(a) - isNew(b);
+    if (isNew(a) === 0) return 0; // keep variant order 1,2,3
     return new Date(b.date) - new Date(a.date);
   });
-  return { width, height, tol, matches };
+  return { len, wid, tol, matches };
 }
 
 function sheetCard(entry) {
@@ -3299,8 +4012,8 @@ function sheetCard(entry) {
   card.dataset.id = entry.id;
   if (entry.id === state.selectedSheetId) card.classList.add('selected');
 
-  if (entry.id === state.lastGeneratedId) {
-    card.appendChild(el('div', 'badge', 'NOVA'));
+  if (entry.batch && entry.batch === state.lastBatch) {
+    card.appendChild(el('div', 'badge', VARIANT_BADGE[entry.variant] || 'NOVA'));
   }
 
   const cv = document.createElement('canvas');
@@ -3309,9 +4022,11 @@ function sheetCard(entry) {
   drawSheetEntry(cv, entry);
   card.appendChild(cv);
 
-  card.appendChild(el('div', 'sc-line1', fmtMm(entry.width) + ' × ' + fmtMm(entry.height) + ' mm'));
+  card.appendChild(el('div', 'sc-line1', dimsText(entry)));
   card.appendChild(el('div', 'sc-line2',
     entry.totalPlaced + ' kom · ' + Math.round((entry.utilization || 0) * 100) + '% · ' + fmtDateShort(entry.date)
+    + (entry.variantLabel && entry.batch !== state.lastBatch ? ' · ' + entry.variantLabel : '')
+    + (entry.setName ? ' · ' + entry.setName : '')
     + (Array.isArray(entry.placements) && entry.placements.length ? '' : ' · stara datoteka')));
 
   card.addEventListener('click', () => selectSheet(entry.id));
@@ -3338,7 +4053,7 @@ function renderOffers() {
     return;
   }
   box.hidden = false;
-  $('offersTitle').textContent = 'Ploče ~ ' + fmtMm(cur.width) + ' × ' + fmtMm(cur.height)
+  $('offersTitle').textContent = 'Ploče ~ ' + fmtMm(cur.len) + ' × ' + fmtMm(cur.wid)
     + ' mm (±' + fmtMm(cur.tol) + ' mm) — ' + cur.matches.length + ' kom';
   const wrap = $('offerCards');
   wrap.innerHTML = '';
@@ -3364,12 +4079,24 @@ function selectSheet(id) {
   const stats = $('stats');
   stats.innerHTML = '';
   stats.appendChild(el('div', 'big',
-    fmtMm(entry.width) + ' × ' + fmtMm(entry.height) + ' mm · ' + entry.totalPlaced + ' kom · '
-    + Math.round((entry.utilization || 0) * 100) + '%'));
+    dimsText(entry) + ' · ' + entry.totalPlaced + ' kom · '
+    + Math.round((entry.utilization || 0) * 100) + '%'
+    + (entry.variantLabel ? ' · ' + entry.variantLabel : '')));
   if (Array.isArray(entry.summary) && entry.summary.length) {
     stats.appendChild(el('div', '', entry.summary.map((s) => s.name + ' ×' + s.count).join('  ·  ')));
   }
-  stats.appendChild(el('div', 'files', (entry.fileName || '') + ' · ' + fmtDate(entry.date)));
+  stats.appendChild(el('div', 'files',
+    (entry.fileName || '') + ' · ' + fmtDate(entry.date) + (entry.setName ? ' · set: ' + entry.setName : '')));
+
+  const warn = $('genWarn');
+  const msgs = [];
+  if (Array.isArray(entry.unplaced) && entry.unplaced.length > 0) {
+    msgs.push('NIJE STALO: ' + entry.unplaced.map((u) => u.name + ' ×' + u.count).join(', '));
+  }
+  if (entry.capped) msgs.push('Dosegnut je sigurnosni limit — ploča možda nije potpuno popunjena.');
+  if (Array.isArray(entry.notes)) for (const n of entry.notes) msgs.push(n);
+  warn.textContent = msgs.join('  ·  ');
+  warn.hidden = msgs.length === 0;
 }
 
 async function openSheetFeedback(id) {
@@ -3392,7 +4119,7 @@ async function saveSheetFeedback(id) {
 }
 
 $('btnGenerate').addEventListener('click', generate);
-for (const id of ['inWidth', 'inHeight']) {
+for (const id of ['inLen', 'inWid']) {
   $(id).addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.repeat) generate();
   });
@@ -3403,6 +4130,75 @@ $('btnOpen').addEventListener('click', () => {
 });
 $('btnSave').addEventListener('click', () => {
   if (state.selectedSheetId) saveSheetFeedback(state.selectedSheetId);
+});
+
+// ---------------------------------------------------------------------------
+// Sets management (prep view)
+// ---------------------------------------------------------------------------
+
+function renderSetsList() {
+  const list = $('setsList');
+  list.innerHTML = '';
+  if (state.sets.length === 0) {
+    list.appendChild(el('div', 'empty',
+      'Još nema setova. Set je spremljeni režim rada: koji partovi idu na ploču i s kojim prioritetima.'));
+  }
+  for (const s of state.sets) {
+    const row = el('div', 'set-row' + (s.id === state.activeSetId ? ' active' : ''));
+
+    const radio = el('button', 'chip' + (s.id === state.activeSetId ? ' active' : ''),
+      s.id === state.activeSetId ? '● AKTIVAN' : 'aktiviraj');
+    radio.addEventListener('click', async () => {
+      const res = await bridge.activateSet(s.id === state.activeSetId ? null : s.id);
+      state.sets = res.sets;
+      state.activeSetId = res.activeSetId;
+      renderSetBar();
+      renderSetsList();
+      renderParts();
+    });
+    row.appendChild(radio);
+
+    const nameIn = document.createElement('input');
+    nameIn.value = s.name;
+    nameIn.title = 'Naziv seta';
+    nameIn.addEventListener('change', async () => {
+      const res = await bridge.renameSet(s.id, nameIn.value);
+      state.sets = res.sets;
+      renderSetBar();
+      renderSetsList();
+    });
+    row.appendChild(nameIn);
+
+    row.appendChild(el('div', 'set-count', Object.keys(s.items || {}).length + ' partova'));
+
+    const del = el('button', 'btn small danger', '✕');
+    del.title = 'Obriši set';
+    del.addEventListener('click', async () => {
+      if (!window.confirm('Obrisati set "' + s.name + '"? Partovi ostaju u biblioteci.')) return;
+      const res = await bridge.removeSet(s.id);
+      state.sets = res.sets;
+      state.activeSetId = res.activeSetId;
+      renderSetBar();
+      renderSetsList();
+      renderParts();
+    });
+    row.appendChild(del);
+
+    list.appendChild(row);
+  }
+  $('setsHint').textContent = state.activeSetId
+    ? 'Uređuješ aktivni set: kvačica "Uklj." dodaje part u set, a prioritet/način vrijede samo za ovaj set.'
+    : 'Aktivno je "SVI": svi uključeni partovi sa svojim osnovnim postavkama.';
+}
+
+$('btnNewSet').addEventListener('click', async () => {
+  const res = await bridge.createSet('Set ' + (state.sets.length + 1));
+  state.sets = res.sets;
+  state.activeSetId = res.activeSetId;
+  renderSetBar();
+  renderSetsList();
+  renderParts();
+  showToast('Novi set je stvoren i aktiviran — kvačicama odaberi partove.');
 });
 
 // ---------------------------------------------------------------------------
@@ -3451,6 +4247,9 @@ function showPartModal(part) {
   const info = [];
   info.push('Dimenzije: ' + fmtMm(part.w) + ' × ' + fmtMm(part.h) + ' mm · površina ' + (part.area / 100).toFixed(1) + ' cm²');
   if (part.entityCount) info.push('Učitano entiteta: ' + part.entityCount);
+  if (part.pairId && state.partsById[part.pairId]) {
+    info.push('U paru s: ' + state.partsById[part.pairId].name + ' (uvijek idu zajedno na ploču)');
+  }
   if (part.warnings && part.warnings.length) {
     info.push('Upozorenja pri uvozu:\n  – ' + part.warnings.join('\n  – '));
   }
@@ -3462,6 +4261,42 @@ function showPartModal(part) {
 $('modalClose').addEventListener('click', () => { $('partModal').hidden = true; });
 $('partModal').addEventListener('click', (e) => {
   if (e.target === $('partModal')) $('partModal').hidden = true;
+});
+
+// Pair picker modal
+let pairSourceId = null;
+function openPairPicker(part) {
+  pairSourceId = part.id;
+  $('pairTitle').textContent = 'Upari "' + part.name + '" s…';
+  const list = $('pairList');
+  list.innerHTML = '';
+  const others = state.parts.filter((p) => p.id !== part.id);
+  if (others.length === 0) {
+    list.appendChild(el('div', 'empty', 'Nema drugih partova.'));
+  }
+  for (const p of others) {
+    const b = el('button', 'pair-option');
+    const cv = document.createElement('canvas');
+    cv.width = 64;
+    cv.height = 48;
+    drawOutline(cv, p, 4);
+    b.appendChild(cv);
+    b.appendChild(el('span', '', p.name + ' (' + fmtMm(p.w) + '×' + fmtMm(p.h) + ')'
+      + (p.pairId ? ' — već u paru' : '')));
+    b.addEventListener('click', async () => {
+      $('pairModal').hidden = true;
+      await bridge.pairPart(pairSourceId, p.id);
+      await refreshParts();
+      showToast('Upareno — idu zajedno na svaku ploču, u jednakom broju.');
+    });
+    list.appendChild(b);
+  }
+  $('pairModal').hidden = false;
+}
+
+$('pairClose').addEventListener('click', () => { $('pairModal').hidden = true; });
+$('pairModal').addEventListener('click', (e) => {
+  if (e.target === $('pairModal')) $('pairModal').hidden = true;
 });
 
 function renderParts() {
@@ -3478,8 +4313,23 @@ function renderParts() {
   }
 }
 
+/** Persist a per-part field change - to the active set, or to the globals. */
+async function updateField(part, patch) {
+  const set = activeSet();
+  if (set) {
+    const res = await bridge.setSetItem(set.id, part.id, patch);
+    state.sets = res.sets;
+    state.activeSetId = res.activeSetId;
+    renderSetsList();
+  } else {
+    await bridge.updatePart(part.id, patch);
+  }
+  await refreshParts();
+}
+
 function partRow(part) {
-  const row = el('div', 'part-row' + (part.enabled ? '' : ' disabled'));
+  const eff = effectiveParams(part);
+  const row = el('div', 'part-row' + (eff.inSelection ? '' : ' disabled'));
 
   const cellMain = el('div', 'part-cell');
   const thumb = document.createElement('canvas');
@@ -3495,19 +4345,39 @@ function partRow(part) {
   const nameInput = document.createElement('input');
   nameInput.value = part.name;
   nameInput.title = 'Naziv parta';
-  nameInput.addEventListener('change', () => update(part.id, { name: nameInput.value }));
+  nameInput.addEventListener('change', () => bridge.updatePart(part.id, { name: nameInput.value }).then(refreshParts));
   main.appendChild(nameInput);
   const dims = el('div', 'part-dims');
-  dims.appendChild(document.createTextNode(fmtMm(part.w) + ' × ' + fmtMm(part.h) + ' mm · ' + (part.area / 100).toFixed(1) + ' cm²'));
+  dims.appendChild(document.createTextNode(fmtMm(part.w) + ' × ' + fmtMm(part.h) + ' mm'));
   if (part.warnings && part.warnings.length) {
     dims.appendChild(document.createTextNode(' · '));
-    const wlink = el('span', 'link', '⚠ ' + part.warnings.length + ' upozorenja');
+    const wlink = el('span', 'link', '⚠ ' + part.warnings.length);
     wlink.addEventListener('click', () => showPartModal(part));
     dims.appendChild(wlink);
   }
   main.appendChild(dims);
+
+  // Pair line: linked parts always land together, in equal counts.
+  const pairLine = el('div', 'pair-line');
+  if (part.pairId && state.partsById[part.pairId]) {
+    pairLine.appendChild(el('span', 'pair-badge', '🔗 ' + state.partsById[part.pairId].name));
+    const unlink = el('button', 'btn tiny ghost', 'odspoji');
+    unlink.addEventListener('click', async () => {
+      await bridge.pairPart(part.id, null);
+      await refreshParts();
+    });
+    pairLine.appendChild(unlink);
+  } else {
+    const link = el('button', 'btn tiny ghost', '🔗 upari…');
+    link.title = 'Upareni partovi idu uvijek zajedno na ploču (npr. lijevo i desno čelo)';
+    link.addEventListener('click', () => openPairPicker(part));
+    pairLine.appendChild(link);
+  }
+  main.appendChild(pairLine);
   cellMain.appendChild(main);
   row.appendChild(cellMain);
+
+  const fieldsDisabled = !eff.inSelection && !!activeSet();
 
   // Priority
   const prio = el('label', 'part-field');
@@ -3516,63 +4386,74 @@ function partRow(part) {
   prioIn.type = 'number';
   prioIn.min = '1';
   prioIn.max = '99';
-  prioIn.value = part.priority;
-  prioIn.addEventListener('change', () => update(part.id, { priority: prioIn.value }));
+  prioIn.value = eff.priority;
+  prioIn.disabled = fieldsDisabled;
+  prioIn.addEventListener('change', () => updateField(part, { priority: prioIn.value }));
   prio.appendChild(prioIn);
   row.appendChild(prio);
 
-  // Mode
+  // Mode - Popuna is the default and listed first.
   const mode = el('label', 'part-field');
   mode.appendChild(el('span', '', 'Način'));
   const modeSel = document.createElement('select');
-  for (const [v, t] of [['fixed', 'Točan broj'], ['filler', 'Popuna']]) {
+  for (const [v, t] of [['filler', 'Popuna'], ['fixed', 'Točan broj']]) {
     const o = document.createElement('option');
     o.value = v;
     o.textContent = t;
-    if (part.mode === v) o.selected = true;
+    if (eff.mode === v) o.selected = true;
     modeSel.appendChild(o);
   }
-  modeSel.addEventListener('change', () => update(part.id, { mode: modeSel.value }));
+  modeSel.disabled = fieldsDisabled;
+  modeSel.addEventListener('change', () => updateField(part, { mode: modeSel.value }));
   mode.appendChild(modeSel);
   row.appendChild(mode);
 
   // Count / maxCount
   const cnt = el('label', 'part-field');
-  const isFiller = part.mode === 'filler';
+  const isFiller = eff.mode === 'filler';
   cnt.appendChild(el('span', '', isFiller ? 'Maks. (0 = koliko stane)' : 'Broj komada'));
   const cntIn = document.createElement('input');
   cntIn.type = 'number';
   cntIn.min = '0';
-  cntIn.value = isFiller ? (part.maxCount || 0) : part.count;
-  cntIn.addEventListener('change', () => update(part.id, isFiller ? { maxCount: cntIn.value } : { count: cntIn.value }));
+  cntIn.value = isFiller ? (eff.maxCount || 0) : eff.count;
+  cntIn.disabled = fieldsDisabled;
+  cntIn.addEventListener('change', () => updateField(part, isFiller ? { maxCount: cntIn.value } : { count: cntIn.value }));
   cnt.appendChild(cntIn);
   row.appendChild(cnt);
 
-  // Enabled
+  // Included: in the active set, or globally enabled.
   const en = el('label', 'part-field check');
   const enIn = document.createElement('input');
   enIn.type = 'checkbox';
-  enIn.checked = !!part.enabled;
-  enIn.addEventListener('change', () => update(part.id, { enabled: enIn.checked }));
+  enIn.checked = eff.inSelection;
+  enIn.addEventListener('change', async () => {
+    const set = activeSet();
+    if (set) {
+      const res = await bridge.setSetItem(set.id, part.id, enIn.checked ? {} : null);
+      state.sets = res.sets;
+      renderSetsList();
+      await refreshParts();
+    } else {
+      await bridge.updatePart(part.id, { enabled: enIn.checked });
+      await refreshParts();
+    }
+  });
   en.appendChild(enIn);
-  en.appendChild(el('span', '', 'Uključen'));
+  en.appendChild(el('span', '', 'Uklj.'));
   row.appendChild(en);
 
-  // Delete
+  // Delete (with confirmation - a slip here would lose the drawing)
   const del = el('button', 'btn small danger', '✕');
   del.title = 'Obriši part';
   del.addEventListener('click', async () => {
+    if (!window.confirm('Obrisati part "' + part.name + '" iz programa?\nOvo briše i njegov DXF iz biblioteke.')) return;
     await bridge.removePart(part.id);
     await refreshParts();
+    await refreshSets();
   });
   row.appendChild(del);
 
   return row;
-}
-
-async function update(id, patch) {
-  await bridge.updatePart(id, patch);
-  await refreshParts();
 }
 
 async function refreshParts() {
@@ -3580,6 +4461,14 @@ async function refreshParts() {
   state.partsById = {};
   for (const p of state.parts) state.partsById[p.id] = p;
   renderParts();
+}
+
+async function refreshSets() {
+  const res = await bridge.listSets();
+  state.sets = res.sets;
+  state.activeSetId = res.activeSetId;
+  renderSetBar();
+  renderSetsList();
 }
 
 // Import
@@ -3686,10 +4575,11 @@ function renderHistory() {
   for (const s of state.history.slice(0, 60)) {
     const row = el('div', 'history-row');
     row.appendChild(el('div', 'hdate', fmtDate(s.date)));
-    row.appendChild(el('div', 'hdims', fmtMm(s.width) + ' × ' + fmtMm(s.height) + ' mm'));
+    row.appendChild(el('div', 'hdims', dimsText(s)));
     row.appendChild(el('div', 'hsum',
-      s.totalPlaced + ' kom · ' + Math.round((s.utilization || 0) * 100) + '% · '
-      + (s.summary || []).map((x) => x.name + '×' + x.count).join(', ')));
+      s.totalPlaced + ' kom · ' + Math.round((s.utilization || 0) * 100) + '%'
+      + (s.variantLabel ? ' · ' + s.variantLabel : '')
+      + ' · ' + (s.summary || []).map((x) => x.name + '×' + x.count).join(', ')));
     const btns = el('div', 'hbtns');
     const open = el('button', 'btn small', IS_WEB ? 'PREUZMI' : 'OTVORI');
     open.addEventListener('click', () => openSheetFeedback(s.id));
@@ -3737,13 +4627,15 @@ async function init() {
   state.settings = await bridge.getSettings();
   renderSettings();
   await refreshParts();
+  await refreshSets();
   await refreshHistory();
+  renderParts(); // re-render with sets state loaded
   renderOffers();
   try {
     const info = await bridge.appInfo();
     $('appVersion').textContent = 'v' + info.version;
   } catch { /* non-critical */ }
-  $('inWidth').focus();
+  $('inLen').focus();
 }
 
 init();

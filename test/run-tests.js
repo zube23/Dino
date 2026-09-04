@@ -9,7 +9,10 @@ const {
   bboxOfPoints, convexHull, polygonArea, minAreaRect, rotatePoints,
 } = require('../src/core/geometry');
 const { MaxRectsBin, nestParts } = require('../src/core/nest');
-const { analyzePart, generateSheet, buildSheetDxf } = require('../src/core/parts');
+const {
+  analyzePart, generateSheet, generateVariants, buildSheetDxf, buildUnits, applySet,
+} = require('../src/core/parts');
+const { bestDuoLayout } = require('../src/core/pair');
 
 let passed = 0;
 let failed = 0;
@@ -961,6 +964,166 @@ function rectsOverlap(a, b) {
   const mi = parseDxf(fs.readFileSync(path.join(__dirname, 'fuzz', 'minsert_true.dxf'), 'utf8'));
   check('minsert copies', mi.entities.filter((e) => e.type === 'CIRCLE').length === 6,
     'got ' + mi.entities.length);
+}
+
+// ---------------------------------------------------------------------------
+// v1.3: duo blocks (180-degree interlock), pairs, sets, sheet variants
+// ---------------------------------------------------------------------------
+
+// A thin L: 100x100 outer, 20mm legs - two of them interlock head-to-toe.
+const thinLDxf = writeDxf([{
+  type: 'POLYLINE', layer: '0', closed: true,
+  verts: [
+    { x: 0, y: 0, bulge: 0 }, { x: 100, y: 0, bulge: 0 }, { x: 100, y: 20, bulge: 0 },
+    { x: 20, y: 20, bulge: 0 }, { x: 20, y: 100, bulge: 0 }, { x: 0, y: 100, bulge: 0 },
+  ],
+}]);
+const thinL = analyzePart(thinLDxf);
+const mkPart = (id, info, content, extra) => ({
+  id, name: id, content,
+  preRotDeg: info.preRotDeg, w: info.w, h: info.h, area: info.area, outline: info.outline,
+  priority: 5, mode: 'fixed', count: 1, maxCount: 0,
+  ...extra,
+});
+
+{
+  // Self-interlock: two thin Ls turned 180 combine far tighter than two boxes
+  const shell = { w: thinL.w, h: thinL.h, outline: thinL.outline };
+  const lay = bestDuoLayout(shell, shell, 5);
+  const separate = 2 * 105 * 105;
+  check('duo interlock saves area', lay.area < 0.65 * separate,
+    'duo=' + Math.round(lay.area) + ' vs ' + separate);
+  check('duo uses 180 turn', lay.a.rot180 !== lay.b.rot180 || lay.a.rot180 === true,
+    JSON.stringify([lay.a, lay.b]));
+
+  // Fixed count 4 -> 2 duo units
+  const { units } = buildUnits([mkPart('L', thinL, thinLDxf, { count: 4 })], 5);
+  const duo = units.find((u) => u.uid.indexOf('d:') === 0);
+  check('self-duo units built', !!duo && duo.count === 2, JSON.stringify(units.map((u) => [u.uid, u.count])));
+}
+
+{
+  // A rectangle that tucks into the L's notch
+  const rectDxf = writeDxf([{
+    type: 'POLYLINE', layer: '0', closed: true,
+    verts: [{ x: 0, y: 0, bulge: 0 }, { x: 70, y: 0, bulge: 0 }, { x: 70, y: 70, bulge: 0 }, { x: 0, y: 70, bulge: 0 }],
+  }]);
+  const rect = analyzePart(rectDxf);
+  const lay = bestDuoLayout(
+    { w: thinL.w, h: thinL.h, outline: thinL.outline },
+    { w: rect.w, h: rect.h, outline: rect.outline },
+    5,
+  );
+  check('rect tucks into L notch', lay.area < 0.75 * (105 * 105 + 75 * 75),
+    'duo=' + Math.round(lay.area));
+}
+
+{
+  // Paired parts always land in equal counts on the sheet
+  const leftDxf = thinLDxf;
+  const rightDxf = writeDxf([{
+    type: 'POLYLINE', layer: '0', closed: true,
+    verts: [{ x: 0, y: 0, bulge: 0 }, { x: 90, y: 0, bulge: 0 }, { x: 90, y: 60, bulge: 0 }, { x: 0, y: 60, bulge: 0 }],
+  }, { type: 'CIRCLE', layer: '0', cx: 20, cy: 20, r: 6 }]);
+  const right = analyzePart(rightDxf);
+  const parts = [
+    mkPart('LIJEVO', thinL, leftDxf, { count: 10, pairId: 'DESNO', priority: 1 }),
+    mkPart('DESNO', right, rightDxf, { count: 10, pairId: 'LIJEVO', priority: 1 }),
+  ];
+  // Sheet too small for all 10 pairs - counts must still stay equal.
+  const res = generateSheet({ sheetW: 500, sheetH: 400, margin: 10, gap: 5, parts });
+  const L = res.placedCounts.LIJEVO || 0;
+  const R = res.placedCounts.DESNO || 0;
+  check('pair equal counts', L === R && L > 0, 'L=' + L + ' R=' + R);
+  const uL = (res.unplaced.find((u) => u.id === 'LIJEVO') || {}).count || 0;
+  const uR = (res.unplaced.find((u) => u.id === 'DESNO') || {}).count || 0;
+  check('pair equal unplaced', uL === uR && L + uL === 10, 'uL=' + uL + ' uR=' + uR);
+
+  // Output DXF stays within the sheet (member transform math incl. 90/180/270)
+  const { entities } = parseDxf(res.dxf);
+  const bb = bboxOfPoints(sampleEntities(entities, 4).flat());
+  check('pair output within margins',
+    bb.minX >= 10 - 0.1 && bb.minY >= 10 - 0.1 && bb.maxX <= 490 + 0.1 && bb.maxY <= 390 + 0.1,
+    JSON.stringify(bb));
+
+  // Same-duo members must keep the gap: min distance between the outlines of
+  // a LIJEVO and DESNO placed in the same duo (nearest pair of placements).
+  const circles = entities.filter((e) => e.type === 'CIRCLE');
+  check('pair circles present', circles.length === R, 'got ' + circles.length);
+}
+
+{
+  // Rebuild from stored placements still byte-identical with duos in play
+  const parts = [mkPart('L', thinL, thinLDxf, { count: 6, priority: 1 })];
+  const res = generateSheet({ sheetW: 400, sheetH: 300, margin: 10, gap: 5, parts });
+  check('duo turn recorded', res.placements.some((p) => p.turn === 180 || p.turn === 270),
+    JSON.stringify(res.placements.map((p) => p.turn)));
+  const rebuilt = buildSheetDxf({ parts, placements: res.placements, sheetW: 400, sheetH: 300 });
+  check('duo rebuild identical', rebuilt === res.dxf);
+}
+
+{
+  // Same-duo interlock keeps at least ~gap between the two outlines
+  const parts = [mkPart('L', thinL, thinLDxf, { count: 2, priority: 1 })];
+  const res = generateSheet({ sheetW: 300, sheetH: 300, margin: 10, gap: 6, parts });
+  check('two Ls placed', res.totalPlaced === 2);
+  const [p1, p2] = res.placements;
+  let minD = Infinity;
+  for (const a of p1.outline.flat()) {
+    for (const b of p2.outline.flat()) {
+      const d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+      if (d < minD) minD = d;
+    }
+  }
+  check('duo respects gap', minD >= 6 * 0.7, 'minD=' + minD.toFixed(2));
+  // ...and actually interlocks (combined bbox area beats two separate boxes)
+  const allPts = res.placements.flatMap((p) => p.outline.flat());
+  const bb = bboxOfPoints(allPts);
+  check('duo interlocks on sheet', bb.w * bb.h < 0.75 * 2 * 105 * 105,
+    'area=' + Math.round(bb.w * bb.h));
+}
+
+{
+  // Sheet variants: priorities vs big-first produce different sheets
+  const bigDxf = writeDxf([{
+    type: 'POLYLINE', layer: '0', closed: true,
+    verts: [{ x: 0, y: 0, bulge: 0 }, { x: 280, y: 0, bulge: 0 }, { x: 280, y: 180, bulge: 0 }, { x: 0, y: 180, bulge: 0 }],
+  }]);
+  const big = analyzePart(bigDxf);
+  const smallDxf = writeDxf([{ type: 'CIRCLE', layer: '0', cx: 0, cy: 0, r: 45 }]);
+  const small = analyzePart(smallDxf);
+  const parts = [
+    mkPart('MALI', small, smallDxf, { priority: 1, count: 4 }),
+    mkPart('VELIKI', big, bigDxf, { priority: 9, count: 2 }),
+  ];
+  // Sheet fits the small parts plus one big OR two big alone.
+  const variants = generateVariants({ sheetW: 300, sheetH: 380, margin: 5, gap: 5, parts });
+  check('variants produced', variants.length >= 2, 'got ' + variants.length);
+  check('variant 1 is priorities', variants[0].variant === 'prioriteti');
+  const v1 = variants[0];
+  const vBig = variants.find((v) => v.variant === 'krupno');
+  check('priority variant places MALI first', (v1.placedCounts.MALI || 0) === 4,
+    JSON.stringify(v1.placedCounts));
+  check('big variant differs', !!vBig && (vBig.placedCounts.VELIKI || 0) >= 1
+    && JSON.stringify(vBig.placedCounts) !== JSON.stringify(v1.placedCounts),
+    JSON.stringify(vBig && vBig.placedCounts));
+}
+
+{
+  // applySet: null = enabled parts as-is; a set = membership + overrides
+  const lib = [
+    { id: 'a', name: 'a', enabled: true, priority: 5, mode: 'filler', count: 1, maxCount: 0 },
+    { id: 'b', name: 'b', enabled: false, priority: 5, mode: 'filler', count: 1, maxCount: 0 },
+    { id: 'c', name: 'c', enabled: true, priority: 5, mode: 'filler', count: 1, maxCount: 0 },
+  ];
+  const all = applySet(lib, null);
+  check('applySet null filters enabled', all.length === 2 && !all.some((p) => p.id === 'b'));
+  const set = { items: { b: { priority: 1, mode: 'fixed', count: 7, maxCount: 0 }, c: {} } };
+  const eff = applySet(lib, set);
+  check('applySet membership', eff.length === 2 && eff.some((p) => p.id === 'b') && !eff.some((p) => p.id === 'a'));
+  const effB = eff.find((p) => p.id === 'b');
+  check('applySet overrides', effB.priority === 1 && effB.mode === 'fixed' && effB.count === 7 && effB.enabled === true,
+    JSON.stringify(effB));
 }
 
 // ---------------------------------------------------------------------------

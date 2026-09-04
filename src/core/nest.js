@@ -136,7 +136,7 @@ class MaxRectsBin {
 function nestParts(opts) {
   const {
     sheetW, sheetH, margin = 0, gap = 0,
-    allowRotate = true, maxTotal = 20000, parts = [],
+    allowRotate = true, maxTotal = 20000, parts = [], order = 'priority',
   } = opts;
 
   if (!(sheetW > 0) || !(sheetH > 0)) {
@@ -162,6 +162,14 @@ function nestParts(opts) {
     if (pa !== pb) return pa - pb; // 1 = highest priority
     return (b.w * b.h) - (a.w * a.h); // bigger first
   };
+  const byAreaDesc = (a, b) => (b.w * b.h) - (a.w * a.h);
+  const byAreaAsc = (a, b) => (a.w * a.h) - (b.w * b.h);
+  // Alternative fill orders produce the "other" sheet variants:
+  //   'big'   - priorities ignored, biggest parts first
+  //   'small' - fillers flood the sheet first (small parts up), fixed after
+  const fixedCmp = order === 'priority' ? byPriorityThenArea : byAreaDesc;
+  const fillerCmp = order === 'small' ? byAreaAsc : (order === 'big' ? byAreaDesc : byPriorityThenArea);
+  const fillersFirst = order === 'small';
 
   const tryPlace = (part) => {
     const node = bin.insert(part.w + gap, part.h + gap, allowRotate);
@@ -180,38 +188,48 @@ function nestParts(opts) {
     return true;
   };
 
-  // 1. Fixed parts
-  const fixed = parts.filter((p) => p.mode !== 'filler').slice().sort(byPriorityThenArea);
-  for (const part of fixed) {
-    const want = Math.max(0, Math.floor(part.count || 0));
-    let missed = 0;
-    for (let k = 0; k < want; k++) {
-      if (total >= maxTotal) {
-        capped = true;
-        missed = want - k;
-        break;
+  const placeFixed = () => {
+    const fixed = parts.filter((p) => p.mode !== 'filler').slice().sort(fixedCmp);
+    for (const part of fixed) {
+      const want = Math.max(0, Math.floor(part.count || 0));
+      let missed = 0;
+      for (let k = 0; k < want; k++) {
+        if (total >= maxTotal) {
+          capped = true;
+          missed = want - k;
+          break;
+        }
+        if (!tryPlace(part)) {
+          missed = want - k;
+          break;
+        }
       }
-      if (!tryPlace(part)) {
-        missed = want - k;
-        break;
-      }
+      if (missed > 0) unplaced.push({ id: part.id, count: missed });
     }
-    if (missed > 0) unplaced.push({ id: part.id, count: missed });
-  }
+  };
 
-  // 2. Filler parts, in priority order: fill with the most important first.
-  const fillers = parts.filter((p) => p.mode === 'filler').slice().sort(byPriorityThenArea);
-  for (const part of fillers) {
-    const cap = part.maxCount && part.maxCount > 0 ? Math.floor(part.maxCount) : Infinity;
-    let placed = placedCounts[part.id] || 0;
-    while (placed < cap) {
-      if (total >= maxTotal) {
-        capped = true;
-        break;
+  const placeFillers = () => {
+    const fillers = parts.filter((p) => p.mode === 'filler').slice().sort(fillerCmp);
+    for (const part of fillers) {
+      const cap = part.maxCount && part.maxCount > 0 ? Math.floor(part.maxCount) : Infinity;
+      let placed = placedCounts[part.id] || 0;
+      while (placed < cap) {
+        if (total >= maxTotal) {
+          capped = true;
+          break;
+        }
+        if (!tryPlace(part)) break;
+        placed += 1;
       }
-      if (!tryPlace(part)) break;
-      placed += 1;
     }
+  };
+
+  if (fillersFirst) {
+    placeFillers();
+    placeFixed();
+  } else {
+    placeFixed();
+    placeFillers();
   }
 
   return {

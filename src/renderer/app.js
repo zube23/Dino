@@ -9,13 +9,21 @@ const state = {
   partsById: {},
   settings: null,
   history: [],
-  lastGeneratedId: null,
+  sets: [],
+  activeSetId: null,
+  lastBatch: null,
   selectedSheetId: null,
 };
 
 const bridge = window.dino;
 const IS_WEB = !!(bridge && bridge.isWeb);
 const CAN_DRAG = !!(bridge && bridge.canDrag);
+
+const VARIANT_BADGE = {
+  prioriteti: '1 · PRIORITETI',
+  krupno: '2 · KRUPNO',
+  sitno: '3 · SITNO',
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -34,6 +42,11 @@ function parseNum(text) {
 function fmtMm(n) {
   // No thousands grouping - the shown value must round-trip through parseNum.
   return String(Math.round(n * 10) / 10).replace('.', ',');
+}
+
+/** Sheets display as DULJINA x ŠIRINA (the machine's long side first = Y). */
+function dimsText(entry) {
+  return fmtMm(entry.height) + ' × ' + fmtMm(entry.width) + ' mm';
 }
 
 function fmtDate(iso) {
@@ -72,6 +85,29 @@ function showToast(msg) {
   toastTimer = setTimeout(() => { t.hidden = true; }, 6000);
 }
 
+function activeSet() {
+  return state.sets.find((s) => s.id === state.activeSetId) || null;
+}
+
+/** Effective display params for a part under the active set (or globals). */
+function effectiveParams(part) {
+  const set = activeSet();
+  if (!set) return { inSelection: !!part.enabled, ...pick(part), fromSet: false };
+  const it = set.items && set.items[part.id];
+  if (!it) return { inSelection: false, ...pick(part), fromSet: true };
+  return {
+    inSelection: true,
+    priority: Number.isFinite(it.priority) ? it.priority : part.priority,
+    mode: it.mode === 'fixed' ? 'fixed' : 'filler',
+    count: Number.isFinite(it.count) ? it.count : part.count,
+    maxCount: Number.isFinite(it.maxCount) ? it.maxCount : part.maxCount,
+    fromSet: true,
+  };
+  function pick(p) {
+    return { priority: p.priority, mode: p.mode, count: p.count, maxCount: p.maxCount };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Tabs
 // ---------------------------------------------------------------------------
@@ -91,17 +127,30 @@ $('tabPriprema').addEventListener('click', () => showView('priprema'));
 // Sheet drawing (from compact placements + the part library outlines)
 // ---------------------------------------------------------------------------
 
+function turnOf(pl) {
+  if (Number.isFinite(pl.turn)) return ((pl.turn % 360) + 360) % 360;
+  return pl.rotated ? 90 : 0;
+}
+
+/** Map a point from part-outline coords into placement coords for a turn. */
+function turnPoint(part, turn, x, y) {
+  switch (turn) {
+    case 90: return [part.h - y, x];
+    case 180: return [part.w - x, part.h - y];
+    case 270: return [y, part.w - x];
+    default: return [x, y];
+  }
+}
+
 function placementPolys(pl) {
   const part = state.partsById[pl.id];
   if (!part || !part.outline) return null;
+  const turn = turnOf(pl);
   const polys = [];
   for (const poly of part.outline) {
     const out = [];
     for (const [px, py] of poly) {
-      // Library outline is normalized to [0..w]x[0..h]; a rotated placement
-      // turns the part 90 degrees CCW: (px,py) -> (h-py, px).
-      const x = pl.rotated ? (part.h - py) : px;
-      const y = pl.rotated ? px : py;
+      const [x, y] = turnPoint(part, turn, px, py);
       out.push([x + pl.x, y + pl.y]);
     }
     polys.push(out);
@@ -157,16 +206,15 @@ function drawSheetEntry(canvas, entry) {
     // Engraving text markings
     const part = state.partsById[pl.id];
     if (part && part.texts && part.texts.length) {
+      const turn = turnOf(pl);
       ctx.fillStyle = 'rgba(180, 195, 212, 0.85)';
       for (const t of part.texts) {
         const fontPx = (t.h || 5) * scale;
         if (fontPx < 3) continue; // unreadable at this zoom
-        const x = pl.rotated ? (part.h - t.y) : t.x;
-        const y = pl.rotated ? t.x : t.y;
-        const rot = (t.rot || 0) + (pl.rotated ? 90 : 0);
+        const [x, y] = turnPoint(part, turn, t.x, t.y);
         ctx.save();
         ctx.translate(tx(x + pl.x), ty(y + pl.y));
-        ctx.rotate(-(rot * Math.PI) / 180);
+        ctx.rotate(-(((t.rot || 0) + turn) * Math.PI) / 180);
         ctx.font = fontPx + 'px sans-serif';
         ctx.fillText(t.s, 0, 0);
         ctx.restore();
@@ -176,19 +224,39 @@ function drawSheetEntry(canvas, entry) {
 }
 
 // ---------------------------------------------------------------------------
-// Machine view: generate + offers
+// Machine view: set switcher, generate, offers
 // ---------------------------------------------------------------------------
+
+function renderSetBar() {
+  const bar = $('setBar');
+  bar.innerHTML = '';
+  const mk = (label, id) => {
+    const b = el('button', 'chip' + ((state.activeSetId || null) === id ? ' active' : ''), label);
+    b.addEventListener('click', async () => {
+      const res = await bridge.activateSet(id);
+      state.sets = res.sets;
+      state.activeSetId = res.activeSetId;
+      renderSetBar();
+      renderSetsList();
+      renderParts();
+      showToast(id ? 'Aktivan set: ' + (activeSet() || {}).name : 'Aktivno: svi uključeni partovi');
+    });
+    return b;
+  };
+  bar.appendChild(mk('SVI', null));
+  for (const s of state.sets) bar.appendChild(mk(s.name, s.id));
+}
 
 async function generate() {
   if ($('btnGenerate').disabled) return; // already running (Enter bypasses the button)
-  const width = parseNum($('inWidth').value);
-  const height = parseNum($('inHeight').value);
+  const len = parseNum($('inLen').value);   // DULJINA -> Y (sheetH)
+  const wid = parseNum($('inWid').value);   // ŠIRINA  -> X (sheetW)
   const status = $('genStatus');
   $('genWarn').hidden = true;
   status.hidden = false;
   status.className = 'status';
 
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+  if (!Number.isFinite(len) || !Number.isFinite(wid) || len <= 0 || wid <= 0) {
     status.classList.add('err');
     status.textContent = 'Upišite duljinu i širinu ploče u milimetrima.';
     return;
@@ -196,31 +264,24 @@ async function generate() {
 
   const btn = $('btnGenerate');
   btn.disabled = true;
-  status.textContent = 'Slažem ploču…';
+  status.textContent = 'Slažem 3 varijante ploče…';
   try {
-    const res = await bridge.generate({ width, height });
+    const res = await bridge.generate({ width: wid, height: len });
     if (!res.ok) {
       status.classList.add('err');
       status.textContent = res.message || 'Generiranje nije uspjelo.';
       return;
     }
     status.hidden = true;
-    state.lastGeneratedId = res.sheetId;
+    state.lastBatch = res.batch;
     await refreshHistory();
     renderOffers();
-    selectSheet(res.sheetId);
-
-    const msgs = [];
-    if (res.unplaced && res.unplaced.length > 0) {
-      msgs.push('NIJE STALO: ' + res.unplaced.map((u) => u.name + ' ×' + u.count).join(', '));
+    if (res.sheets && res.sheets.length > 0) selectSheet(res.sheets[0].sheetId);
+    if (res.openMessage) {
+      $('genWarn').textContent = res.openMessage;
+      $('genWarn').hidden = false;
     }
-    if (res.capped) {
-      msgs.push('Dosegnut je sigurnosni limit od ' + (res.maxTotal || '') + ' komada — ploča možda nije potpuno popunjena.');
-    }
-    if (res.openMessage) msgs.push(res.openMessage);
-    $('genWarn').textContent = msgs.join('  ·  ');
-    $('genWarn').hidden = msgs.length === 0;
-    if (res.opened) showToast('Otvoreno u CypCut-u: ' + res.fileName);
+    if (res.opened) showToast('Otvoreno u CypCut-u: ' + res.sheets[0].fileName);
   } catch (e) {
     status.classList.add('err');
     status.textContent = 'Greška: ' + (e && e.message ? e.message : e);
@@ -236,17 +297,18 @@ function dimsMatch(entry, w, h, tol) {
 }
 
 function currentMatches() {
-  const width = parseNum($('inWidth').value);
-  const height = parseNum($('inHeight').value);
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
+  const len = parseNum($('inLen').value);
+  const wid = parseNum($('inWid').value);
+  if (!Number.isFinite(len) || !Number.isFinite(wid) || len <= 0 || wid <= 0) return null;
   const tol = (state.settings && Number.isFinite(state.settings.histTol)) ? state.settings.histTol : 20;
-  const matches = state.history.filter((s) => dimsMatch(s, width, height, tol));
+  const matches = state.history.filter((s) => dimsMatch(s, wid, len, tol));
+  const isNew = (s) => (s.batch && s.batch === state.lastBatch) ? 0 : 1;
   matches.sort((a, b) => {
-    if (a.id === state.lastGeneratedId) return -1;
-    if (b.id === state.lastGeneratedId) return 1;
+    if (isNew(a) !== isNew(b)) return isNew(a) - isNew(b);
+    if (isNew(a) === 0) return 0; // keep variant order 1,2,3
     return new Date(b.date) - new Date(a.date);
   });
-  return { width, height, tol, matches };
+  return { len, wid, tol, matches };
 }
 
 function sheetCard(entry) {
@@ -254,8 +316,8 @@ function sheetCard(entry) {
   card.dataset.id = entry.id;
   if (entry.id === state.selectedSheetId) card.classList.add('selected');
 
-  if (entry.id === state.lastGeneratedId) {
-    card.appendChild(el('div', 'badge', 'NOVA'));
+  if (entry.batch && entry.batch === state.lastBatch) {
+    card.appendChild(el('div', 'badge', VARIANT_BADGE[entry.variant] || 'NOVA'));
   }
 
   const cv = document.createElement('canvas');
@@ -264,9 +326,11 @@ function sheetCard(entry) {
   drawSheetEntry(cv, entry);
   card.appendChild(cv);
 
-  card.appendChild(el('div', 'sc-line1', fmtMm(entry.width) + ' × ' + fmtMm(entry.height) + ' mm'));
+  card.appendChild(el('div', 'sc-line1', dimsText(entry)));
   card.appendChild(el('div', 'sc-line2',
     entry.totalPlaced + ' kom · ' + Math.round((entry.utilization || 0) * 100) + '% · ' + fmtDateShort(entry.date)
+    + (entry.variantLabel && entry.batch !== state.lastBatch ? ' · ' + entry.variantLabel : '')
+    + (entry.setName ? ' · ' + entry.setName : '')
     + (Array.isArray(entry.placements) && entry.placements.length ? '' : ' · stara datoteka')));
 
   card.addEventListener('click', () => selectSheet(entry.id));
@@ -293,7 +357,7 @@ function renderOffers() {
     return;
   }
   box.hidden = false;
-  $('offersTitle').textContent = 'Ploče ~ ' + fmtMm(cur.width) + ' × ' + fmtMm(cur.height)
+  $('offersTitle').textContent = 'Ploče ~ ' + fmtMm(cur.len) + ' × ' + fmtMm(cur.wid)
     + ' mm (±' + fmtMm(cur.tol) + ' mm) — ' + cur.matches.length + ' kom';
   const wrap = $('offerCards');
   wrap.innerHTML = '';
@@ -319,12 +383,24 @@ function selectSheet(id) {
   const stats = $('stats');
   stats.innerHTML = '';
   stats.appendChild(el('div', 'big',
-    fmtMm(entry.width) + ' × ' + fmtMm(entry.height) + ' mm · ' + entry.totalPlaced + ' kom · '
-    + Math.round((entry.utilization || 0) * 100) + '%'));
+    dimsText(entry) + ' · ' + entry.totalPlaced + ' kom · '
+    + Math.round((entry.utilization || 0) * 100) + '%'
+    + (entry.variantLabel ? ' · ' + entry.variantLabel : '')));
   if (Array.isArray(entry.summary) && entry.summary.length) {
     stats.appendChild(el('div', '', entry.summary.map((s) => s.name + ' ×' + s.count).join('  ·  ')));
   }
-  stats.appendChild(el('div', 'files', (entry.fileName || '') + ' · ' + fmtDate(entry.date)));
+  stats.appendChild(el('div', 'files',
+    (entry.fileName || '') + ' · ' + fmtDate(entry.date) + (entry.setName ? ' · set: ' + entry.setName : '')));
+
+  const warn = $('genWarn');
+  const msgs = [];
+  if (Array.isArray(entry.unplaced) && entry.unplaced.length > 0) {
+    msgs.push('NIJE STALO: ' + entry.unplaced.map((u) => u.name + ' ×' + u.count).join(', '));
+  }
+  if (entry.capped) msgs.push('Dosegnut je sigurnosni limit — ploča možda nije potpuno popunjena.');
+  if (Array.isArray(entry.notes)) for (const n of entry.notes) msgs.push(n);
+  warn.textContent = msgs.join('  ·  ');
+  warn.hidden = msgs.length === 0;
 }
 
 async function openSheetFeedback(id) {
@@ -347,7 +423,7 @@ async function saveSheetFeedback(id) {
 }
 
 $('btnGenerate').addEventListener('click', generate);
-for (const id of ['inWidth', 'inHeight']) {
+for (const id of ['inLen', 'inWid']) {
   $(id).addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.repeat) generate();
   });
@@ -358,6 +434,75 @@ $('btnOpen').addEventListener('click', () => {
 });
 $('btnSave').addEventListener('click', () => {
   if (state.selectedSheetId) saveSheetFeedback(state.selectedSheetId);
+});
+
+// ---------------------------------------------------------------------------
+// Sets management (prep view)
+// ---------------------------------------------------------------------------
+
+function renderSetsList() {
+  const list = $('setsList');
+  list.innerHTML = '';
+  if (state.sets.length === 0) {
+    list.appendChild(el('div', 'empty',
+      'Još nema setova. Set je spremljeni režim rada: koji partovi idu na ploču i s kojim prioritetima.'));
+  }
+  for (const s of state.sets) {
+    const row = el('div', 'set-row' + (s.id === state.activeSetId ? ' active' : ''));
+
+    const radio = el('button', 'chip' + (s.id === state.activeSetId ? ' active' : ''),
+      s.id === state.activeSetId ? '● AKTIVAN' : 'aktiviraj');
+    radio.addEventListener('click', async () => {
+      const res = await bridge.activateSet(s.id === state.activeSetId ? null : s.id);
+      state.sets = res.sets;
+      state.activeSetId = res.activeSetId;
+      renderSetBar();
+      renderSetsList();
+      renderParts();
+    });
+    row.appendChild(radio);
+
+    const nameIn = document.createElement('input');
+    nameIn.value = s.name;
+    nameIn.title = 'Naziv seta';
+    nameIn.addEventListener('change', async () => {
+      const res = await bridge.renameSet(s.id, nameIn.value);
+      state.sets = res.sets;
+      renderSetBar();
+      renderSetsList();
+    });
+    row.appendChild(nameIn);
+
+    row.appendChild(el('div', 'set-count', Object.keys(s.items || {}).length + ' partova'));
+
+    const del = el('button', 'btn small danger', '✕');
+    del.title = 'Obriši set';
+    del.addEventListener('click', async () => {
+      if (!window.confirm('Obrisati set "' + s.name + '"? Partovi ostaju u biblioteci.')) return;
+      const res = await bridge.removeSet(s.id);
+      state.sets = res.sets;
+      state.activeSetId = res.activeSetId;
+      renderSetBar();
+      renderSetsList();
+      renderParts();
+    });
+    row.appendChild(del);
+
+    list.appendChild(row);
+  }
+  $('setsHint').textContent = state.activeSetId
+    ? 'Uređuješ aktivni set: kvačica "Uklj." dodaje part u set, a prioritet/način vrijede samo za ovaj set.'
+    : 'Aktivno je "SVI": svi uključeni partovi sa svojim osnovnim postavkama.';
+}
+
+$('btnNewSet').addEventListener('click', async () => {
+  const res = await bridge.createSet('Set ' + (state.sets.length + 1));
+  state.sets = res.sets;
+  state.activeSetId = res.activeSetId;
+  renderSetBar();
+  renderSetsList();
+  renderParts();
+  showToast('Novi set je stvoren i aktiviran — kvačicama odaberi partove.');
 });
 
 // ---------------------------------------------------------------------------
@@ -406,6 +551,9 @@ function showPartModal(part) {
   const info = [];
   info.push('Dimenzije: ' + fmtMm(part.w) + ' × ' + fmtMm(part.h) + ' mm · površina ' + (part.area / 100).toFixed(1) + ' cm²');
   if (part.entityCount) info.push('Učitano entiteta: ' + part.entityCount);
+  if (part.pairId && state.partsById[part.pairId]) {
+    info.push('U paru s: ' + state.partsById[part.pairId].name + ' (uvijek idu zajedno na ploču)');
+  }
   if (part.warnings && part.warnings.length) {
     info.push('Upozorenja pri uvozu:\n  – ' + part.warnings.join('\n  – '));
   }
@@ -417,6 +565,42 @@ function showPartModal(part) {
 $('modalClose').addEventListener('click', () => { $('partModal').hidden = true; });
 $('partModal').addEventListener('click', (e) => {
   if (e.target === $('partModal')) $('partModal').hidden = true;
+});
+
+// Pair picker modal
+let pairSourceId = null;
+function openPairPicker(part) {
+  pairSourceId = part.id;
+  $('pairTitle').textContent = 'Upari "' + part.name + '" s…';
+  const list = $('pairList');
+  list.innerHTML = '';
+  const others = state.parts.filter((p) => p.id !== part.id);
+  if (others.length === 0) {
+    list.appendChild(el('div', 'empty', 'Nema drugih partova.'));
+  }
+  for (const p of others) {
+    const b = el('button', 'pair-option');
+    const cv = document.createElement('canvas');
+    cv.width = 64;
+    cv.height = 48;
+    drawOutline(cv, p, 4);
+    b.appendChild(cv);
+    b.appendChild(el('span', '', p.name + ' (' + fmtMm(p.w) + '×' + fmtMm(p.h) + ')'
+      + (p.pairId ? ' — već u paru' : '')));
+    b.addEventListener('click', async () => {
+      $('pairModal').hidden = true;
+      await bridge.pairPart(pairSourceId, p.id);
+      await refreshParts();
+      showToast('Upareno — idu zajedno na svaku ploču, u jednakom broju.');
+    });
+    list.appendChild(b);
+  }
+  $('pairModal').hidden = false;
+}
+
+$('pairClose').addEventListener('click', () => { $('pairModal').hidden = true; });
+$('pairModal').addEventListener('click', (e) => {
+  if (e.target === $('pairModal')) $('pairModal').hidden = true;
 });
 
 function renderParts() {
@@ -433,8 +617,23 @@ function renderParts() {
   }
 }
 
+/** Persist a per-part field change - to the active set, or to the globals. */
+async function updateField(part, patch) {
+  const set = activeSet();
+  if (set) {
+    const res = await bridge.setSetItem(set.id, part.id, patch);
+    state.sets = res.sets;
+    state.activeSetId = res.activeSetId;
+    renderSetsList();
+  } else {
+    await bridge.updatePart(part.id, patch);
+  }
+  await refreshParts();
+}
+
 function partRow(part) {
-  const row = el('div', 'part-row' + (part.enabled ? '' : ' disabled'));
+  const eff = effectiveParams(part);
+  const row = el('div', 'part-row' + (eff.inSelection ? '' : ' disabled'));
 
   const cellMain = el('div', 'part-cell');
   const thumb = document.createElement('canvas');
@@ -450,19 +649,39 @@ function partRow(part) {
   const nameInput = document.createElement('input');
   nameInput.value = part.name;
   nameInput.title = 'Naziv parta';
-  nameInput.addEventListener('change', () => update(part.id, { name: nameInput.value }));
+  nameInput.addEventListener('change', () => bridge.updatePart(part.id, { name: nameInput.value }).then(refreshParts));
   main.appendChild(nameInput);
   const dims = el('div', 'part-dims');
-  dims.appendChild(document.createTextNode(fmtMm(part.w) + ' × ' + fmtMm(part.h) + ' mm · ' + (part.area / 100).toFixed(1) + ' cm²'));
+  dims.appendChild(document.createTextNode(fmtMm(part.w) + ' × ' + fmtMm(part.h) + ' mm'));
   if (part.warnings && part.warnings.length) {
     dims.appendChild(document.createTextNode(' · '));
-    const wlink = el('span', 'link', '⚠ ' + part.warnings.length + ' upozorenja');
+    const wlink = el('span', 'link', '⚠ ' + part.warnings.length);
     wlink.addEventListener('click', () => showPartModal(part));
     dims.appendChild(wlink);
   }
   main.appendChild(dims);
+
+  // Pair line: linked parts always land together, in equal counts.
+  const pairLine = el('div', 'pair-line');
+  if (part.pairId && state.partsById[part.pairId]) {
+    pairLine.appendChild(el('span', 'pair-badge', '🔗 ' + state.partsById[part.pairId].name));
+    const unlink = el('button', 'btn tiny ghost', 'odspoji');
+    unlink.addEventListener('click', async () => {
+      await bridge.pairPart(part.id, null);
+      await refreshParts();
+    });
+    pairLine.appendChild(unlink);
+  } else {
+    const link = el('button', 'btn tiny ghost', '🔗 upari…');
+    link.title = 'Upareni partovi idu uvijek zajedno na ploču (npr. lijevo i desno čelo)';
+    link.addEventListener('click', () => openPairPicker(part));
+    pairLine.appendChild(link);
+  }
+  main.appendChild(pairLine);
   cellMain.appendChild(main);
   row.appendChild(cellMain);
+
+  const fieldsDisabled = !eff.inSelection && !!activeSet();
 
   // Priority
   const prio = el('label', 'part-field');
@@ -471,63 +690,74 @@ function partRow(part) {
   prioIn.type = 'number';
   prioIn.min = '1';
   prioIn.max = '99';
-  prioIn.value = part.priority;
-  prioIn.addEventListener('change', () => update(part.id, { priority: prioIn.value }));
+  prioIn.value = eff.priority;
+  prioIn.disabled = fieldsDisabled;
+  prioIn.addEventListener('change', () => updateField(part, { priority: prioIn.value }));
   prio.appendChild(prioIn);
   row.appendChild(prio);
 
-  // Mode
+  // Mode - Popuna is the default and listed first.
   const mode = el('label', 'part-field');
   mode.appendChild(el('span', '', 'Način'));
   const modeSel = document.createElement('select');
-  for (const [v, t] of [['fixed', 'Točan broj'], ['filler', 'Popuna']]) {
+  for (const [v, t] of [['filler', 'Popuna'], ['fixed', 'Točan broj']]) {
     const o = document.createElement('option');
     o.value = v;
     o.textContent = t;
-    if (part.mode === v) o.selected = true;
+    if (eff.mode === v) o.selected = true;
     modeSel.appendChild(o);
   }
-  modeSel.addEventListener('change', () => update(part.id, { mode: modeSel.value }));
+  modeSel.disabled = fieldsDisabled;
+  modeSel.addEventListener('change', () => updateField(part, { mode: modeSel.value }));
   mode.appendChild(modeSel);
   row.appendChild(mode);
 
   // Count / maxCount
   const cnt = el('label', 'part-field');
-  const isFiller = part.mode === 'filler';
+  const isFiller = eff.mode === 'filler';
   cnt.appendChild(el('span', '', isFiller ? 'Maks. (0 = koliko stane)' : 'Broj komada'));
   const cntIn = document.createElement('input');
   cntIn.type = 'number';
   cntIn.min = '0';
-  cntIn.value = isFiller ? (part.maxCount || 0) : part.count;
-  cntIn.addEventListener('change', () => update(part.id, isFiller ? { maxCount: cntIn.value } : { count: cntIn.value }));
+  cntIn.value = isFiller ? (eff.maxCount || 0) : eff.count;
+  cntIn.disabled = fieldsDisabled;
+  cntIn.addEventListener('change', () => updateField(part, isFiller ? { maxCount: cntIn.value } : { count: cntIn.value }));
   cnt.appendChild(cntIn);
   row.appendChild(cnt);
 
-  // Enabled
+  // Included: in the active set, or globally enabled.
   const en = el('label', 'part-field check');
   const enIn = document.createElement('input');
   enIn.type = 'checkbox';
-  enIn.checked = !!part.enabled;
-  enIn.addEventListener('change', () => update(part.id, { enabled: enIn.checked }));
+  enIn.checked = eff.inSelection;
+  enIn.addEventListener('change', async () => {
+    const set = activeSet();
+    if (set) {
+      const res = await bridge.setSetItem(set.id, part.id, enIn.checked ? {} : null);
+      state.sets = res.sets;
+      renderSetsList();
+      await refreshParts();
+    } else {
+      await bridge.updatePart(part.id, { enabled: enIn.checked });
+      await refreshParts();
+    }
+  });
   en.appendChild(enIn);
-  en.appendChild(el('span', '', 'Uključen'));
+  en.appendChild(el('span', '', 'Uklj.'));
   row.appendChild(en);
 
-  // Delete
+  // Delete (with confirmation - a slip here would lose the drawing)
   const del = el('button', 'btn small danger', '✕');
   del.title = 'Obriši part';
   del.addEventListener('click', async () => {
+    if (!window.confirm('Obrisati part "' + part.name + '" iz programa?\nOvo briše i njegov DXF iz biblioteke.')) return;
     await bridge.removePart(part.id);
     await refreshParts();
+    await refreshSets();
   });
   row.appendChild(del);
 
   return row;
-}
-
-async function update(id, patch) {
-  await bridge.updatePart(id, patch);
-  await refreshParts();
 }
 
 async function refreshParts() {
@@ -535,6 +765,14 @@ async function refreshParts() {
   state.partsById = {};
   for (const p of state.parts) state.partsById[p.id] = p;
   renderParts();
+}
+
+async function refreshSets() {
+  const res = await bridge.listSets();
+  state.sets = res.sets;
+  state.activeSetId = res.activeSetId;
+  renderSetBar();
+  renderSetsList();
 }
 
 // Import
@@ -641,10 +879,11 @@ function renderHistory() {
   for (const s of state.history.slice(0, 60)) {
     const row = el('div', 'history-row');
     row.appendChild(el('div', 'hdate', fmtDate(s.date)));
-    row.appendChild(el('div', 'hdims', fmtMm(s.width) + ' × ' + fmtMm(s.height) + ' mm'));
+    row.appendChild(el('div', 'hdims', dimsText(s)));
     row.appendChild(el('div', 'hsum',
-      s.totalPlaced + ' kom · ' + Math.round((s.utilization || 0) * 100) + '% · '
-      + (s.summary || []).map((x) => x.name + '×' + x.count).join(', ')));
+      s.totalPlaced + ' kom · ' + Math.round((s.utilization || 0) * 100) + '%'
+      + (s.variantLabel ? ' · ' + s.variantLabel : '')
+      + ' · ' + (s.summary || []).map((x) => x.name + '×' + x.count).join(', ')));
     const btns = el('div', 'hbtns');
     const open = el('button', 'btn small', IS_WEB ? 'PREUZMI' : 'OTVORI');
     open.addEventListener('click', () => openSheetFeedback(s.id));
@@ -692,13 +931,15 @@ async function init() {
   state.settings = await bridge.getSettings();
   renderSettings();
   await refreshParts();
+  await refreshSets();
   await refreshHistory();
+  renderParts(); // re-render with sets state loaded
   renderOffers();
   try {
     const info = await bridge.appInfo();
     $('appVersion').textContent = 'v' + info.version;
   } catch { /* non-critical */ }
-  $('inWidth').focus();
+  $('inLen').focus();
 }
 
 init();

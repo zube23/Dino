@@ -183,8 +183,8 @@ function nestParts(opts) {
   const fillersFirst = order === 'small';
 
   // Optional randomness for the dense multi-restart search. Priorities stay
-  // hard boundaries: fixed parts are only shuffled WITHIN the same priority,
-  // fillers may be shuffled freely (they are best-effort anyway).
+  // hard boundaries for fixed parts AND fillers: both are only shuffled
+  // WITHIN the same priority group.
   const shuffle = (arr) => {
     for (let i = arr.length - 1; i > 0; i--) {
       const j = Math.floor(rng() * (i + 1));
@@ -248,7 +248,7 @@ function nestParts(opts) {
 
   const placeFillers = () => {
     let fillers = parts.filter((p) => p.mode === 'filler').slice().sort(fillerCmp);
-    if (rng) fillers = shuffle(fillers);
+    if (rng) fillers = shuffleWithinPriority(fillers);
     for (const part of fillers) {
       const cap = part.maxCount && part.maxCount > 0 ? Math.floor(part.maxCount) : Infinity;
       let placed = placedCounts[part.id] || 0;

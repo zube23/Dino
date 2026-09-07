@@ -1224,6 +1224,84 @@ const unplacedSum = (res) => (res.unplaced || []).reduce((n, u) => n + (u.count 
     JSON.stringify(all.map((v) => v.variant)));
 }
 
+{
+  // v1.4.1: filler priority is a hard boundary under dense shuffling too -
+  // a low-priority filler must never take space a high-priority one wants.
+  const mkF = (id, w, h, priority) => ({
+    id, w, h, area: w * h, priority, mode: 'filler', count: 0, maxCount: 0,
+  });
+  for (let s = 1; s <= 5; s++) {
+    let x = (s * 2654435761) % 4294967296;
+    const rng = () => { x = (x * 1664525 + 1013904223) % 4294967296; return x / 4294967296; };
+    // Sheet fits exactly one 90x60 (hi) OR two 45x55 (lo) - hi must win.
+    const res = nestParts({
+      sheetW: 95, sheetH: 65, margin: 0, gap: 0, allowRotate: true, rng,
+      parts: [mkF('lo', 45, 55, 5), mkF('hi', 90, 60, 1)],
+    });
+    check('rng keeps filler priority (seed ' + s + ')',
+      (res.placedCounts.hi || 0) === 1 && !res.placedCounts.lo,
+      JSON.stringify(res.placedCounts));
+  }
+
+  // End-to-end: the dense winner keeps the high-priority filler on the sheet.
+  const hiDxf = writeDxf([{
+    type: 'POLYLINE', layer: '0', closed: true,
+    verts: [{ x: 0, y: 0, bulge: 0 }, { x: 90, y: 0, bulge: 0 },
+      { x: 90, y: 60, bulge: 0 }, { x: 0, y: 60, bulge: 0 }],
+  }]);
+  const loDxf = writeDxf([{
+    type: 'POLYLINE', layer: '0', closed: true,
+    verts: [{ x: 0, y: 0, bulge: 0 }, { x: 45, y: 0, bulge: 0 },
+      { x: 45, y: 55, bulge: 0 }, { x: 0, y: 55, bulge: 0 }],
+  }]);
+  const hi = analyzePart(hiDxf);
+  const lo = analyzePart(loDxf);
+  const parts = [
+    mkPart('fillHi', hi, hiDxf, { mode: 'filler', priority: 1, count: 0, maxCount: 0 }),
+    mkPart('fillLo', lo, loDxf, { mode: 'filler', priority: 5, count: 0, maxCount: 0 }),
+  ];
+  const opts = { sheetW: 320, sheetH: 240, margin: 5, gap: 5, parts };
+  const base = generateSheet({ ...opts, order: 'priority' });
+  const dense = generateDense(opts, { budgetMs: 300, seed: 2 });
+  check('dense keeps high-priority fillers',
+    (dense.placedCounts.fillHi || 0) >= (base.placedCounts.fillHi || 0),
+    'dense=' + JSON.stringify(dense.placedCounts) + ' base=' + JSON.stringify(base.placedCounts));
+}
+
+{
+  // v1.4.1: knap probes try all three fill orders. This instance leaves one
+  // part unplaced in EVERY normal variant; only a +10 bump packed big-first
+  // (or small-first) fits everything - priority order fails even bumped.
+  const mkR = (id, w, h, extra) => {
+    const d = writeDxf([{
+      type: 'POLYLINE', layer: '0', closed: true,
+      verts: [{ x: 0, y: 0, bulge: 0 }, { x: w, y: 0, bulge: 0 },
+        { x: w, y: h, bulge: 0 }, { x: 0, y: h, bulge: 0 }],
+    }]);
+    const i = analyzePart(d);
+    return mkPart(id, i, d, extra);
+  };
+  const parts = [
+    mkR('a', 45, 47, { priority: 2, count: 1 }),
+    mkR('b', 32, 90, { priority: 3, count: 1 }),
+    mkR('c', 20, 68, { priority: 3, count: 2 }),
+    mkR('d', 71, 10, { priority: 1, count: 2 }),
+  ];
+  const opts = { sheetW: 100, sheetH: 100, margin: 0, gap: 0, parts };
+  check('knap-order: bumped priority order still fails',
+    unplacedSum(generateSheet({ ...opts, sheetW: 110, sheetH: 110, order: 'priority' })) === 1);
+  const all = generateAll(opts, {});
+  const knap = all.find((v) => v.variant === 'naknap');
+  check('knap-order: naknap offered via non-priority order', !!knap,
+    JSON.stringify(all.map((v) => v.variant)));
+  check('knap-order: everything fits on the bumped sheet',
+    !!knap && unplacedSum(knap) === 0 && knap.totalPlaced === 6,
+    knap && JSON.stringify({ unplaced: knap.unplaced, placed: knap.totalPlaced }));
+  check('knap-order: bump within the +10 limit',
+    !!knap && knap.knapBump.w <= 10 && knap.knapBump.h <= 10,
+    knap && JSON.stringify(knap.knapBump));
+}
+
 // ---------------------------------------------------------------------------
 // Performance smoke test - "instant" requirement
 // ---------------------------------------------------------------------------

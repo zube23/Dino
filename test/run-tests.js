@@ -10,7 +10,8 @@ const {
 } = require('../src/core/geometry');
 const { MaxRectsBin, nestParts } = require('../src/core/nest');
 const {
-  analyzePart, generateSheet, generateVariants, buildSheetDxf, buildUnits, applySet,
+  analyzePart, generateSheet, generateVariants, generateDense, generateKnap,
+  generateAll, buildSheetDxf, buildUnits, applySet,
 } = require('../src/core/parts');
 const { bestDuoLayout } = require('../src/core/pair');
 
@@ -1124,6 +1125,103 @@ const mkPart = (id, info, content, extra) => ({
   const effB = eff.find((p) => p.id === 'b');
   check('applySet overrides', effB.priority === 1 && effB.mode === 'fixed' && effB.count === 7 && effB.enabled === true,
     JSON.stringify(effB));
+}
+
+// ---------------------------------------------------------------------------
+// v1.4: dense multi-restart ("STISNI JACE"), "na knap" probes, rng priorities
+// ---------------------------------------------------------------------------
+
+const unplacedSum = (res) => (res.unplaced || []).reduce((n, u) => n + (u.count || 0), 0);
+
+{
+  // Randomized order (dense restarts) must never violate priorities:
+  // priority 1 parts fill the sheet before priority 2 gets a chance.
+  const mk = (id, priority) => ({
+    id, w: 100, h: 100, area: 10000, priority, mode: 'fixed', count: 4,
+  });
+  for (let s = 1; s <= 5; s++) {
+    let x = (s * 2654435761) % 4294967296;
+    const rng = () => { x = (x * 1664525 + 1013904223) % 4294967296; return x / 4294967296; };
+    // One row of four 100x100 squares fits (430x110, gap 5).
+    const res = nestParts({
+      sheetW: 430, sheetH: 110, margin: 0, gap: 5, allowRotate: true, rng,
+      parts: [mk('lo', 2), mk('hi', 1)],
+    });
+    check('rng keeps priorities (seed ' + s + ')',
+      (res.placedCounts.hi || 0) === 4 && !res.placedCounts.lo,
+      JSON.stringify(res.placedCounts));
+  }
+}
+
+{
+  // "Na knap": 985x985 part cannot fit a 1000x1000 sheet with 10mm margin,
+  // but a +5mm bump on both sides makes it fit exactly.
+  const sqDxf = writeDxf([{
+    type: 'POLYLINE', layer: '0', closed: true,
+    verts: [{ x: 0, y: 0, bulge: 0 }, { x: 985, y: 0, bulge: 0 },
+      { x: 985, y: 985, bulge: 0 }, { x: 0, y: 985, bulge: 0 }],
+  }]);
+  const sq = analyzePart(sqDxf);
+  const parts = [mkPart('KVADRAT', sq, sqDxf, { count: 1, priority: 1 })];
+  const opts = { sheetW: 1000, sheetH: 1000, margin: 10, gap: 5, parts };
+
+  const base = generateSheet({ ...opts, order: 'priority' });
+  check('knap: baseline does not fit', base.totalPlaced === 0 && unplacedSum(base) === 1,
+    JSON.stringify(base.unplaced));
+
+  const all = generateAll(opts, {});
+  check('knap: offered as the extra sheet', all.length === 1 && all[0].variant === 'naknap',
+    JSON.stringify(all.map((v) => v.variant)));
+  const knap = all[0];
+  check('knap: smallest helpful bump (+5)',
+    knap.knapDims && knap.knapDims.width === 1005 && knap.knapDims.height === 1005,
+    JSON.stringify(knap.knapDims));
+  check('knap: everything placed', knap.totalPlaced === 1 && knap.unplaced.length === 0);
+  check('knap: label says +5 mm', /\+5 mm/.test(knap.variantLabel), knap.variantLabel);
+
+  // The user's limit is a hard cap: with max +4mm nothing helps.
+  const none = generateAll(opts, { knapMax: 4 });
+  check('knap: +10 limit respected', none.length === 0, JSON.stringify(none.map((v) => v.variant)));
+  check('knap: direct call respects cap', generateKnap(opts, 1, 4) === null);
+}
+
+{
+  // Dense search: never worse than standard GENERIRAJ (restart 0 is the
+  // deterministic baseline), and reproducible for a fixed seed+restart cap.
+  const rectDxf = writeDxf([{
+    type: 'POLYLINE', layer: '0', closed: true,
+    verts: [{ x: 0, y: 0, bulge: 0 }, { x: 70, y: 0, bulge: 0 },
+      { x: 70, y: 40, bulge: 0 }, { x: 0, y: 40, bulge: 0 }],
+  }]);
+  const rect = analyzePart(rectDxf);
+  const parts = [
+    mkPart('L', thinL, thinLDxf, { count: 6, priority: 1 }),
+    mkPart('PLOCICA', rect, rectDxf, { mode: 'filler', count: 0, maxCount: 0, priority: 5 }),
+  ];
+  const opts = { sheetW: 330, sheetH: 330, margin: 10, gap: 5, parts };
+
+  const base = generateSheet({ ...opts, order: 'priority' });
+  const dense = generateDense(opts, { budgetMs: 400, seed: 3 });
+  check('dense: produced', !!dense && dense.variant === 'stisnuto');
+  const dU = unplacedSum(dense);
+  const bU = unplacedSum(base);
+  check('dense: never worse than standard',
+    dU < bU || (dU === bU && dense.utilization >= base.utilization - 1e-9),
+    'dense=' + dU + '/' + dense.utilization.toFixed(3) + ' base=' + bU + '/' + base.utilization.toFixed(3));
+
+  const sig = (r) => JSON.stringify(r.placements.map((p) => [p.id, Math.round(p.x * 10), Math.round(p.y * 10), p.turn]).sort());
+  const d1 = generateDense(opts, { budgetMs: 60000, maxRestarts: 25, seed: 11 });
+  const d2 = generateDense(opts, { budgetMs: 60000, maxRestarts: 25, seed: 11 });
+  check('dense: same seed, same sheet', sig(d1) === sig(d2));
+
+  // generateAll with dense: the dense sheet leads when it differs, and the
+  // standard trio is still there.
+  const all = generateAll(opts, { dense: true, budgetMs: 300, seed: 3 });
+  check('dense: generateAll has prioriteti', all.some((v) => v.variant === 'prioriteti'),
+    JSON.stringify(all.map((v) => v.variant)));
+  const di = all.findIndex((v) => v.variant === 'stisnuto');
+  check('dense: stisnuto first when present', di === -1 || di === 0,
+    JSON.stringify(all.map((v) => v.variant)));
 }
 
 // ---------------------------------------------------------------------------

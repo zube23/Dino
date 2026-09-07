@@ -21,10 +21,25 @@
 const EPS = 1e-7;
 
 class MaxRectsBin {
-  constructor(width, height) {
+  /**
+   * @param {string} [heuristic='bssf'] placement scoring:
+   *   'bssf' best short side fit, 'baf' best area fit, 'bl' bottom-left.
+   */
+  constructor(width, height, heuristic) {
     this.width = width;
     this.height = height;
+    this.heuristic = heuristic || 'bssf';
     this.free = [{ x: 0, y: 0, w: width, h: height }];
+  }
+
+  _score(r, w, h) {
+    const shortFit = Math.min(r.w - w, r.h - h);
+    const longFit = Math.max(r.w - w, r.h - h);
+    switch (this.heuristic) {
+      case 'baf': return [r.w * r.h - w * h, shortFit];
+      case 'bl': return [r.y, r.x];
+      default: return [shortFit, longFit];
+    }
   }
 
   /**
@@ -32,22 +47,17 @@ class MaxRectsBin {
    */
   insert(w, h, allowRotate) {
     let best = null;
-    for (const r of this.free) {
-      if (w <= r.w + EPS && h <= r.h + EPS) {
-        const shortFit = Math.min(r.w - w, r.h - h);
-        const longFit = Math.max(r.w - w, r.h - h);
-        if (!best || shortFit < best.shortFit - EPS
-          || (Math.abs(shortFit - best.shortFit) <= EPS && longFit < best.longFit - EPS)) {
-          best = { x: r.x, y: r.y, w, h, rotated: false, shortFit, longFit };
-        }
+    const consider = (r, pw, ph, rotated) => {
+      const key = this._score(r, pw, ph);
+      if (!best || key[0] < best.key[0] - EPS
+        || (Math.abs(key[0] - best.key[0]) <= EPS && key[1] < best.key[1] - EPS)) {
+        best = { x: r.x, y: r.y, w: pw, h: ph, rotated, key };
       }
+    };
+    for (const r of this.free) {
+      if (w <= r.w + EPS && h <= r.h + EPS) consider(r, w, h, false);
       if (allowRotate && h <= r.w + EPS && w <= r.h + EPS && Math.abs(w - h) > EPS) {
-        const shortFit = Math.min(r.w - h, r.h - w);
-        const longFit = Math.max(r.w - h, r.h - w);
-        if (!best || shortFit < best.shortFit - EPS
-          || (Math.abs(shortFit - best.shortFit) <= EPS && longFit < best.longFit - EPS)) {
-          best = { x: r.x, y: r.y, w: h, h: w, rotated: true, shortFit, longFit };
-        }
+        consider(r, h, w, true);
       }
     }
     if (!best) return null;
@@ -137,6 +147,7 @@ function nestParts(opts) {
   const {
     sheetW, sheetH, margin = 0, gap = 0,
     allowRotate = true, maxTotal = 20000, parts = [], order = 'priority',
+    heuristic = 'bssf', rng = null,
   } = opts;
 
   if (!(sheetW > 0) || !(sheetH > 0)) {
@@ -148,7 +159,7 @@ function nestParts(opts) {
     throw new Error('Ploča je premala za zadani rub.');
   }
 
-  const bin = new MaxRectsBin(usableW, usableH);
+  const bin = new MaxRectsBin(usableW, usableH, heuristic);
   const placements = [];
   const unplaced = [];
   const placedCounts = {};
@@ -171,6 +182,30 @@ function nestParts(opts) {
   const fillerCmp = order === 'small' ? byAreaAsc : (order === 'big' ? byAreaDesc : byPriorityThenArea);
   const fillersFirst = order === 'small';
 
+  // Optional randomness for the dense multi-restart search. Priorities stay
+  // hard boundaries: fixed parts are only shuffled WITHIN the same priority,
+  // fillers may be shuffled freely (they are best-effort anyway).
+  const shuffle = (arr) => {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+    }
+    return arr;
+  };
+  const shuffleWithinPriority = (arr) => {
+    const groups = new Map();
+    for (const p of arr) {
+      const key = Number.isFinite(p.priority) ? p.priority : 999;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(p);
+    }
+    const out = [];
+    for (const key of Array.from(groups.keys()).sort((a, b) => a - b)) {
+      out.push(...shuffle(groups.get(key)));
+    }
+    return out;
+  };
+
   const tryPlace = (part) => {
     const node = bin.insert(part.w + gap, part.h + gap, allowRotate);
     if (!node) return false;
@@ -189,7 +224,10 @@ function nestParts(opts) {
   };
 
   const placeFixed = () => {
-    const fixed = parts.filter((p) => p.mode !== 'filler').slice().sort(fixedCmp);
+    let fixed = parts.filter((p) => p.mode !== 'filler').slice().sort(fixedCmp);
+    if (rng) {
+      fixed = order === 'priority' ? shuffleWithinPriority(fixed) : shuffle(fixed);
+    }
     for (const part of fixed) {
       const want = Math.max(0, Math.floor(part.count || 0));
       let missed = 0;
@@ -209,7 +247,8 @@ function nestParts(opts) {
   };
 
   const placeFillers = () => {
-    const fillers = parts.filter((p) => p.mode === 'filler').slice().sort(fillerCmp);
+    let fillers = parts.filter((p) => p.mode === 'filler').slice().sort(fillerCmp);
+    if (rng) fillers = shuffle(fillers);
     for (const part of fillers) {
       const cap = part.maxCount && part.maxCount > 0 ? Math.floor(part.maxCount) : Infinity;
       let placed = placedCounts[part.id] || 0;

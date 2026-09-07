@@ -8,7 +8,7 @@ const {
 } = require('electron');
 
 const {
-  analyzePart, applySet, buildSheetDxf, generateVariants,
+  analyzePart, applySet, buildSheetDxf, generateAll,
 } = require('../src/core/parts');
 
 let win = null;
@@ -492,7 +492,7 @@ ipcMain.handle('nest:generate', async (ev, req) => {
   let variants;
   const t0 = Date.now();
   try {
-    variants = generateVariants({
+    variants = generateAll({
       sheetW: width,
       sheetH: height,
       margin: settings.margin,
@@ -500,6 +500,11 @@ ipcMain.handle('nest:generate', async (ev, req) => {
       allowRotate: settings.allowRotate,
       addFrame: settings.addFrame,
       parts,
+    }, {
+      dense: !!(req && req.dense),
+      budgetMs: 5000,
+      seed: (Date.now() >>> 0) || 1,
+      knapMax: 10,
     });
   } catch (e) {
     return { ok: false, message: e && e.message ? e.message : String(e) };
@@ -523,8 +528,12 @@ ipcMain.handle('nest:generate', async (ev, req) => {
   for (let vi = 0; vi < variants.length; vi++) {
     const result = variants[vi];
     const id = newId();
+    // "Na knap" sheets are generated on a slightly enlarged sheet - the
+    // entry records the REAL (bigger) dimensions the operator must cut on.
+    const eWidth = result.knapDims ? result.knapDims.width : width;
+    const eHeight = result.knapDims ? result.knapDims.height : height;
     // File name reads duljina x širina (Y x X).
-    const fileName = 'Ploca_' + Math.round(height) + 'x' + Math.round(width)
+    const fileName = 'Ploca_' + Math.round(eHeight) + 'x' + Math.round(eWidth)
       + '_' + stamp + '_v' + (vi + 1) + '_' + id.slice(-4) + '.dxf';
     entries.push({
       id,
@@ -532,8 +541,8 @@ ipcMain.handle('nest:generate', async (ev, req) => {
       variant: result.variant,
       variantLabel: result.variantLabel,
       date: now.toISOString(),
-      width,
-      height,
+      width: eWidth,
+      height: eHeight,
       fileName,
       addFrame: !!settings.addFrame,
       setName: activeSet ? activeSet.name : null,
@@ -561,6 +570,8 @@ ipcMain.handle('nest:generate', async (ev, req) => {
       batch,
       variant: result.variant,
       variantLabel: result.variantLabel,
+      width: eWidth,
+      height: eHeight,
       fileName,
       unplaced: result.unplaced,
       notes: result.notes,

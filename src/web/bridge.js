@@ -5,7 +5,7 @@
  * and SAMPLE_FILES/SAMPLE_CONFIG are provided by the bundle.
  */
 (function () {
-  const { analyzePart, applySet, buildSheetDxf, generateVariants } = __req('parts');
+  const { analyzePart, applySet, buildSheetDxf, generateAll } = __req('parts');
   const PAIR_MIRRORED = ['priority', 'mode', 'count', 'maxCount'];
 
   // ---- storage (localStorage with in-memory fallback) ----
@@ -348,7 +348,7 @@
       let variants;
       const t0 = performance.now();
       try {
-        variants = generateVariants({
+        variants = generateAll({
           sheetW: width,
           sheetH: height,
           margin: settings.margin,
@@ -356,6 +356,13 @@
           allowRotate: settings.allowRotate,
           addFrame: settings.addFrame,
           parts: effective,
+        }, {
+          dense: !!(req && req.dense),
+          // The browser runs everything on the UI thread - keep the dense
+          // search short enough that the page never feels frozen.
+          budgetMs: 2500,
+          seed: (Date.now() >>> 0) || 1,
+          knapMax: 10,
         });
       } catch (e) {
         return { ok: false, message: (e && e.message) || String(e) };
@@ -377,7 +384,9 @@
       for (let vi = 0; vi < variants.length; vi++) {
         const result = variants[vi];
         const id = newId();
-        const fileName = 'Ploca_' + Math.round(height) + 'x' + Math.round(width)
+        const eWidth = result.knapDims ? result.knapDims.width : width;
+        const eHeight = result.knapDims ? result.knapDims.height : height;
+        const fileName = 'Ploca_' + Math.round(eHeight) + 'x' + Math.round(eWidth)
           + '_' + stamp + '_v' + (vi + 1) + '_' + id.slice(-4) + '.dxf';
         entries.push({
           id,
@@ -385,8 +394,8 @@
           variant: result.variant,
           variantLabel: result.variantLabel,
           date: now.toISOString(),
-          width,
-          height,
+          width: eWidth,
+          height: eHeight,
           fileName,
           addFrame: !!settings.addFrame,
           setName: set ? set.name : null,
@@ -414,6 +423,8 @@
           batch,
           variant: result.variant,
           variantLabel: result.variantLabel,
+          width: eWidth,
+          height: eHeight,
           fileName,
           unplaced: result.unplaced,
           notes: result.notes,
@@ -454,6 +465,6 @@
     },
     pickExe: async () => null,
     pickDir: async () => null,
-    appInfo: async () => ({ version: '1.3.0 · web proba', dataDir: '' }),
+    appInfo: async () => ({ version: '1.4.0 · web proba', dataDir: '' }),
   };
 })();

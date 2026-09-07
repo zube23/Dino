@@ -23,6 +23,8 @@ const VARIANT_BADGE = {
   prioriteti: '1 · PRIORITETI',
   krupno: '2 · KRUPNO',
   sitno: '3 · SITNO',
+  stisnuto: '★ STISNUTO',
+  naknap: '⚠ NA KNAP',
 };
 
 // ---------------------------------------------------------------------------
@@ -247,7 +249,7 @@ function renderSetBar() {
   for (const s of state.sets) bar.appendChild(mk(s.name, s.id));
 }
 
-async function generate() {
+async function generate(dense) {
   if ($('btnGenerate').disabled) return; // already running (Enter bypasses the button)
   const len = parseNum($('inLen').value);   // DULJINA -> Y (sheetH)
   const wid = parseNum($('inWid').value);   // ŠIRINA  -> X (sheetW)
@@ -263,10 +265,16 @@ async function generate() {
   }
 
   const btn = $('btnGenerate');
+  const btnD = $('btnDense');
   btn.disabled = true;
-  status.textContent = 'Slažem 3 varijante ploče…';
+  btnD.disabled = true;
+  status.textContent = dense
+    ? 'Stišćem jače — tražim najgušći raspored (par sekundi)…'
+    : 'Slažem varijante ploče…';
   try {
-    const res = await bridge.generate({ width: wid, height: len });
+    // The dense search blocks for a few seconds - let the status paint first.
+    if (dense) await new Promise((r) => setTimeout(r, 30));
+    const res = await bridge.generate({ width: wid, height: len, dense: !!dense });
     if (!res.ok) {
       status.classList.add('err');
       status.textContent = res.message || 'Generiranje nije uspjelo.';
@@ -277,16 +285,26 @@ async function generate() {
     await refreshHistory();
     renderOffers();
     if (res.sheets && res.sheets.length > 0) selectSheet(res.sheets[0].sheetId);
+    if (dense && !(res.sheets || []).some((s) => s.variant === 'stisnuto')) {
+      showToast('Gušći raspored nije pronađen — standardni je već najbolji.');
+    }
+    if ((res.sheets || []).some((s) => s.variant === 'naknap')) {
+      showToast('Ponuđena je i ploča NA KNAP — malo veća, ali stane više!');
+    }
     if (res.openMessage) {
       $('genWarn').textContent = res.openMessage;
       $('genWarn').hidden = false;
     }
     if (res.opened) showToast('Otvoreno u CypCut-u: ' + res.sheets[0].fileName);
+    // Ready for the next sheet: Enter-Enter-Enter workflow without the mouse.
+    $('inLen').focus();
+    $('inLen').select();
   } catch (e) {
     status.classList.add('err');
     status.textContent = 'Greška: ' + (e && e.message ? e.message : e);
   } finally {
     btn.disabled = false;
+    btnD.disabled = false;
   }
 }
 
@@ -317,7 +335,13 @@ function sheetCard(entry) {
   if (entry.id === state.selectedSheetId) card.classList.add('selected');
 
   if (entry.batch && entry.batch === state.lastBatch) {
-    card.appendChild(el('div', 'badge', VARIANT_BADGE[entry.variant] || 'NOVA'));
+    const label = entry.variant === 'naknap'
+      ? '⚠ ' + (entry.variantLabel || 'NA KNAP').toUpperCase()
+      : (VARIANT_BADGE[entry.variant] || 'NOVA');
+    const badge = el('div', 'badge', label);
+    if (entry.variant === 'stisnuto') badge.classList.add('b-dense');
+    if (entry.variant === 'naknap') badge.classList.add('b-knap');
+    card.appendChild(badge);
   }
 
   const cv = document.createElement('canvas');
@@ -394,6 +418,9 @@ function selectSheet(id) {
 
   const warn = $('genWarn');
   const msgs = [];
+  if (entry.variant === 'naknap') {
+    msgs.push('NA KNAP: ovo je VEĆA ploča — ' + dimsText(entry) + '. Provjerite da takav lim postoji!');
+  }
   if (Array.isArray(entry.unplaced) && entry.unplaced.length > 0) {
     msgs.push('NIJE STALO: ' + entry.unplaced.map((u) => u.name + ' ×' + u.count).join(', '));
   }
@@ -422,11 +449,20 @@ async function saveSheetFeedback(id) {
   }
 }
 
-$('btnGenerate').addEventListener('click', generate);
+$('btnGenerate').addEventListener('click', () => generate(false));
+$('btnDense').addEventListener('click', () => generate(true));
+// Enter chain, no mouse needed: DULJINA -> Enter -> ŠIRINA -> Enter -> generate.
+$('inLen').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.repeat) {
+    const w = $('inWid');
+    w.focus();
+    w.select();
+  }
+});
+$('inWid').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.repeat) generate(false);
+});
 for (const id of ['inLen', 'inWid']) {
-  $(id).addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.repeat) generate();
-  });
   $(id).addEventListener('input', renderOffers);
 }
 $('btnOpen').addEventListener('click', () => {

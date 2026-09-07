@@ -262,7 +262,7 @@ function generateSheet(opts) {
   const {
     sheetW, sheetH, margin = 10, gap = 8,
     allowRotate = true, addFrame = false, parts = [], maxTotal,
-    order = 'priority',
+    order = 'priority', heuristic = 'bssf', rng = null,
   } = opts;
 
   const { units, notes } = buildUnits(parts, gap);
@@ -277,6 +277,8 @@ function generateSheet(opts) {
     allowRotate,
     maxTotal,
     order,
+    heuristic,
+    rng,
     parts: units.map((u) => ({
       id: u.uid,
       w: u.w,
@@ -453,6 +455,191 @@ function generateVariants(opts) {
   return out;
 }
 
+/** Deterministic 32-bit PRNG - same seed, same restart, same sheet. */
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function next() {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function unplacedTotal(res) {
+  let n = 0;
+  for (const u of (res && res.unplaced) || []) n += u.count || 0;
+  return n;
+}
+
+/**
+ * "STISNI JACE": multi-restart search over placement heuristics and
+ * randomized part orders (shuffled only WITHIN the same priority, so
+ * priorities still hold). Restart 0 is the exact deterministic baseline of
+ * GENERIRAJ, so the dense result is never worse than the standard sheet.
+ * The search scores cheap unit-level nests and materializes the full sheet
+ * (DXF entities, outlines) only once, for the winner.
+ *
+ * @returns generateSheet result tagged {variant:'stisnuto'} or null when
+ *          nothing can be placed at all.
+ */
+function generateDense(opts, denseOpts) {
+  const {
+    sheetW, sheetH, margin = 10, gap = 8, allowRotate = true,
+    parts = [], maxTotal,
+  } = opts;
+  const { budgetMs = 5000, seed = 1, maxRestarts = 20000 } = denseOpts || {};
+
+  const { units } = buildUnits(parts, gap);
+  const rects = units.map((u) => ({
+    id: u.uid,
+    w: u.w,
+    h: u.h,
+    area: u.area,
+    priority: u.priority,
+    mode: u.mode,
+    count: u.count,
+    maxCount: u.maxCount,
+  }));
+  const membersOf = {};
+  for (const u of units) membersOf[u.uid] = u.members.length;
+
+  const heuristics = ['bssf', 'baf', 'bl'];
+  const pick = mulberry32((seed >>> 0) || 1);
+  const deadline = Date.now() + Math.max(250, budgetMs);
+
+  let best = null; // {heuristic, seed(0 = no shuffle), missing, utilization}
+  const tryOne = (heuristic, restartSeed) => {
+    const nest = nestParts({
+      sheetW,
+      sheetH,
+      margin,
+      gap,
+      allowRotate,
+      maxTotal,
+      order: 'priority',
+      heuristic,
+      rng: restartSeed ? mulberry32(restartSeed) : null,
+      parts: rects,
+    });
+    let missing = 0;
+    for (const u of nest.unplaced) missing += (u.count || 0) * (membersOf[u.id] || 1);
+    if (!best || missing < best.missing
+      || (missing === best.missing && nest.utilization > best.utilization + 1e-9)) {
+      best = { heuristic, seed: restartSeed, missing, utilization: nest.utilization };
+    }
+  };
+
+  tryOne('bssf', 0); // restart 0 = the standard GENERIRAJ result
+  tryOne('baf', 0);
+  tryOne('bl', 0);
+  let restarts = 3;
+  while (Date.now() < deadline && restarts < maxRestarts) {
+    tryOne(heuristics[Math.floor(pick() * heuristics.length)],
+      1 + Math.floor(pick() * 0xFFFFFFFE));
+    restarts += 1;
+  }
+
+  const res = generateSheet({
+    ...opts,
+    order: 'priority',
+    heuristic: best.heuristic,
+    rng: best.seed ? mulberry32(best.seed) : null,
+  });
+  if (res.totalPlaced === 0) return null;
+  return {
+    ...res, variant: 'stisnuto', variantLabel: 'Stisnuto jače', denseRestarts: restarts,
+  };
+}
+
+// "Na knap" probes: tiny sheet enlargements (dW along X/sirina, dH along
+// Y/duljina), smallest first, capped by the user's limit (default +10 mm).
+const KNAP_BUMPS = [
+  [0, 1], [1, 0], [1, 1], [0, 2], [2, 0], [2, 2], [3, 3],
+  [0, 5], [5, 0], [5, 5], [8, 8], [0, 10], [10, 0], [10, 10],
+];
+
+/**
+ * "Na knap": when something almost fits, try a slightly bigger sheet.
+ * Returns the first probe that places MORE than the best regular sheet did
+ * (fewer unplaced), tagged {variant:'naknap', knapDims:{width,height}} where
+ * width = X/sirina and height = Y/duljina of the enlarged sheet. Null when
+ * no small bump helps.
+ */
+function generateKnap(opts, baselineUnplaced, maxBump) {
+  const limit = Number.isFinite(maxBump) ? maxBump : 10;
+  if (!(baselineUnplaced > 0) || limit <= 0) return null;
+  for (const [bw, bh] of KNAP_BUMPS) {
+    if (bw > limit || bh > limit) continue;
+    const res = generateSheet({
+      ...opts, sheetW: opts.sheetW + bw, sheetH: opts.sheetH + bh, order: 'priority',
+    });
+    if (res.totalPlaced > 0 && unplacedTotal(res) < baselineUnplaced) {
+      return {
+        ...res,
+        variant: 'naknap',
+        variantLabel: 'Na knap +' + Math.max(bw, bh) + ' mm',
+        knapDims: { width: opts.sheetW + bw, height: opts.sheetH + bh },
+        knapBump: { w: bw, h: bh },
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * One-stop generation for a GENERIRAJ / STISNI JACE press. Returns the
+ * ordered list of sheets to offer:
+ *   [stisnuto?] + [prioriteti, krupno, sitno] + [naknap?]
+ * - stisnuto only when `dense` is requested AND it differs from the regular
+ *   sheets (identical layouts are deduplicated);
+ * - naknap only when even the best regular/dense sheet leaves something
+ *   unplaced and a bump of at most `knapMax` mm fits more.
+ */
+function generateAll(opts, extra) {
+  const { dense = false, budgetMs, seed, maxRestarts, knapMax = 10 } = extra || {};
+  const out = [];
+  const seen = new Set();
+  const sigOf = (res) => JSON.stringify(res.placements.map((p) => [
+    p.id, Math.round(p.x * 10), Math.round(p.y * 10), p.turn,
+  ]).sort());
+  let minUnplaced = Infinity;
+
+  const defs = [
+    { variant: 'prioriteti', variantLabel: 'Po prioritetima', order: 'priority' },
+    { variant: 'krupno', variantLabel: 'Krupni komadi', order: 'big' },
+    { variant: 'sitno', variantLabel: 'Sitni komadi', order: 'small' },
+  ];
+  for (const d of defs) {
+    const res = generateSheet({ ...opts, order: d.order });
+    minUnplaced = Math.min(minUnplaced, unplacedTotal(res));
+    if (res.totalPlaced === 0) continue;
+    const s = sigOf(res);
+    if (seen.has(s)) continue;
+    seen.add(s);
+    out.push({ ...res, variant: d.variant, variantLabel: d.variantLabel });
+  }
+
+  if (dense) {
+    const dres = generateDense(opts, { budgetMs, seed, maxRestarts });
+    if (dres) {
+      minUnplaced = Math.min(minUnplaced, unplacedTotal(dres));
+      const s = sigOf(dres);
+      if (!seen.has(s)) {
+        seen.add(s);
+        out.unshift(dres); // best sheet first
+      }
+    }
+  }
+
+  if (Number.isFinite(minUnplaced) && minUnplaced > 0) {
+    const knap = generateKnap(opts, minUnplaced, knapMax);
+    if (knap) out.push(knap);
+  }
+  return out;
+}
+
 /**
  * Re-create a sheet DXF from stored placements (the compact history record)
  * without re-running the nesting. Produces byte-identical output to the
@@ -511,5 +698,6 @@ function buildSheetDxf(opts) {
 }
 
 module.exports = {
-  analyzePart, generateSheet, generateVariants, buildSheetDxf, buildUnits, applySet,
+  analyzePart, generateSheet, generateVariants, generateDense, generateKnap,
+  generateAll, buildSheetDxf, buildUnits, applySet,
 };

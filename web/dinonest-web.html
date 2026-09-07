@@ -207,6 +207,16 @@ html, body {
   filter: grayscale(0.7) brightness(0.7);
   cursor: wait;
 }
+/* Secondary big button: slower multi-restart dense search. */
+.generate.dense {
+  font-size: clamp(14px, 3vw, 18px);
+  padding: 9px 14px;
+  background: transparent;
+  border: 2px solid var(--accent);
+  color: var(--accent2);
+  box-shadow: none;
+}
+.generate.dense:hover { background: rgba(255, 122, 26, 0.12); filter: none; }
 
 .status {
   font-size: 16px;
@@ -269,6 +279,8 @@ html, body {
   letter-spacing: 1px;
 }
 .sheet-card .badge.old { background: #58a6ff; color: #04182e; }
+.sheet-card .badge.b-dense { background: #c39bff; color: #1d0a38; }
+.sheet-card .badge.b-knap { background: #ffd23e; color: #3a2a00; }
 .drag-hint { color: var(--muted); font-size: 13px; margin-top: 8px; }
 
 /* ---------------- result ---------------- */
@@ -564,6 +576,7 @@ html, body {
           </label>
         </div>
         <button id="btnGenerate" class="generate">GENERIRAJ</button>
+        <button id="btnDense" class="generate dense" title="Traži gušći raspored - traje par sekundi">★ STISNI JAČE</button>
       </section>
 
       <div id="genStatus" class="status" hidden></div>
@@ -2278,10 +2291,25 @@ __mods['nest'] = (function () { const module = { exports: {} };
 const EPS = 1e-7;
 
 class MaxRectsBin {
-  constructor(width, height) {
+  /**
+   * @param {string} [heuristic='bssf'] placement scoring:
+   *   'bssf' best short side fit, 'baf' best area fit, 'bl' bottom-left.
+   */
+  constructor(width, height, heuristic) {
     this.width = width;
     this.height = height;
+    this.heuristic = heuristic || 'bssf';
     this.free = [{ x: 0, y: 0, w: width, h: height }];
+  }
+
+  _score(r, w, h) {
+    const shortFit = Math.min(r.w - w, r.h - h);
+    const longFit = Math.max(r.w - w, r.h - h);
+    switch (this.heuristic) {
+      case 'baf': return [r.w * r.h - w * h, shortFit];
+      case 'bl': return [r.y, r.x];
+      default: return [shortFit, longFit];
+    }
   }
 
   /**
@@ -2289,22 +2317,17 @@ class MaxRectsBin {
    */
   insert(w, h, allowRotate) {
     let best = null;
-    for (const r of this.free) {
-      if (w <= r.w + EPS && h <= r.h + EPS) {
-        const shortFit = Math.min(r.w - w, r.h - h);
-        const longFit = Math.max(r.w - w, r.h - h);
-        if (!best || shortFit < best.shortFit - EPS
-          || (Math.abs(shortFit - best.shortFit) <= EPS && longFit < best.longFit - EPS)) {
-          best = { x: r.x, y: r.y, w, h, rotated: false, shortFit, longFit };
-        }
+    const consider = (r, pw, ph, rotated) => {
+      const key = this._score(r, pw, ph);
+      if (!best || key[0] < best.key[0] - EPS
+        || (Math.abs(key[0] - best.key[0]) <= EPS && key[1] < best.key[1] - EPS)) {
+        best = { x: r.x, y: r.y, w: pw, h: ph, rotated, key };
       }
+    };
+    for (const r of this.free) {
+      if (w <= r.w + EPS && h <= r.h + EPS) consider(r, w, h, false);
       if (allowRotate && h <= r.w + EPS && w <= r.h + EPS && Math.abs(w - h) > EPS) {
-        const shortFit = Math.min(r.w - h, r.h - w);
-        const longFit = Math.max(r.w - h, r.h - w);
-        if (!best || shortFit < best.shortFit - EPS
-          || (Math.abs(shortFit - best.shortFit) <= EPS && longFit < best.longFit - EPS)) {
-          best = { x: r.x, y: r.y, w: h, h: w, rotated: true, shortFit, longFit };
-        }
+        consider(r, h, w, true);
       }
     }
     if (!best) return null;
@@ -2394,6 +2417,7 @@ function nestParts(opts) {
   const {
     sheetW, sheetH, margin = 0, gap = 0,
     allowRotate = true, maxTotal = 20000, parts = [], order = 'priority',
+    heuristic = 'bssf', rng = null,
   } = opts;
 
   if (!(sheetW > 0) || !(sheetH > 0)) {
@@ -2405,7 +2429,7 @@ function nestParts(opts) {
     throw new Error('Ploča je premala za zadani rub.');
   }
 
-  const bin = new MaxRectsBin(usableW, usableH);
+  const bin = new MaxRectsBin(usableW, usableH, heuristic);
   const placements = [];
   const unplaced = [];
   const placedCounts = {};
@@ -2428,6 +2452,30 @@ function nestParts(opts) {
   const fillerCmp = order === 'small' ? byAreaAsc : (order === 'big' ? byAreaDesc : byPriorityThenArea);
   const fillersFirst = order === 'small';
 
+  // Optional randomness for the dense multi-restart search. Priorities stay
+  // hard boundaries: fixed parts are only shuffled WITHIN the same priority,
+  // fillers may be shuffled freely (they are best-effort anyway).
+  const shuffle = (arr) => {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+    }
+    return arr;
+  };
+  const shuffleWithinPriority = (arr) => {
+    const groups = new Map();
+    for (const p of arr) {
+      const key = Number.isFinite(p.priority) ? p.priority : 999;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(p);
+    }
+    const out = [];
+    for (const key of Array.from(groups.keys()).sort((a, b) => a - b)) {
+      out.push(...shuffle(groups.get(key)));
+    }
+    return out;
+  };
+
   const tryPlace = (part) => {
     const node = bin.insert(part.w + gap, part.h + gap, allowRotate);
     if (!node) return false;
@@ -2446,7 +2494,10 @@ function nestParts(opts) {
   };
 
   const placeFixed = () => {
-    const fixed = parts.filter((p) => p.mode !== 'filler').slice().sort(fixedCmp);
+    let fixed = parts.filter((p) => p.mode !== 'filler').slice().sort(fixedCmp);
+    if (rng) {
+      fixed = order === 'priority' ? shuffleWithinPriority(fixed) : shuffle(fixed);
+    }
     for (const part of fixed) {
       const want = Math.max(0, Math.floor(part.count || 0));
       let missed = 0;
@@ -2466,7 +2517,8 @@ function nestParts(opts) {
   };
 
   const placeFillers = () => {
-    const fillers = parts.filter((p) => p.mode === 'filler').slice().sort(fillerCmp);
+    let fillers = parts.filter((p) => p.mode === 'filler').slice().sort(fillerCmp);
+    if (rng) fillers = shuffle(fillers);
     for (const part of fillers) {
       const cap = part.maxCount && part.maxCount > 0 ? Math.floor(part.maxCount) : Infinity;
       let placed = placedCounts[part.id] || 0;
@@ -2978,7 +3030,7 @@ function generateSheet(opts) {
   const {
     sheetW, sheetH, margin = 10, gap = 8,
     allowRotate = true, addFrame = false, parts = [], maxTotal,
-    order = 'priority',
+    order = 'priority', heuristic = 'bssf', rng = null,
   } = opts;
 
   const { units, notes } = buildUnits(parts, gap);
@@ -2993,6 +3045,8 @@ function generateSheet(opts) {
     allowRotate,
     maxTotal,
     order,
+    heuristic,
+    rng,
     parts: units.map((u) => ({
       id: u.uid,
       w: u.w,
@@ -3169,6 +3223,191 @@ function generateVariants(opts) {
   return out;
 }
 
+/** Deterministic 32-bit PRNG - same seed, same restart, same sheet. */
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function next() {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function unplacedTotal(res) {
+  let n = 0;
+  for (const u of (res && res.unplaced) || []) n += u.count || 0;
+  return n;
+}
+
+/**
+ * "STISNI JACE": multi-restart search over placement heuristics and
+ * randomized part orders (shuffled only WITHIN the same priority, so
+ * priorities still hold). Restart 0 is the exact deterministic baseline of
+ * GENERIRAJ, so the dense result is never worse than the standard sheet.
+ * The search scores cheap unit-level nests and materializes the full sheet
+ * (DXF entities, outlines) only once, for the winner.
+ *
+ * @returns generateSheet result tagged {variant:'stisnuto'} or null when
+ *          nothing can be placed at all.
+ */
+function generateDense(opts, denseOpts) {
+  const {
+    sheetW, sheetH, margin = 10, gap = 8, allowRotate = true,
+    parts = [], maxTotal,
+  } = opts;
+  const { budgetMs = 5000, seed = 1, maxRestarts = 20000 } = denseOpts || {};
+
+  const { units } = buildUnits(parts, gap);
+  const rects = units.map((u) => ({
+    id: u.uid,
+    w: u.w,
+    h: u.h,
+    area: u.area,
+    priority: u.priority,
+    mode: u.mode,
+    count: u.count,
+    maxCount: u.maxCount,
+  }));
+  const membersOf = {};
+  for (const u of units) membersOf[u.uid] = u.members.length;
+
+  const heuristics = ['bssf', 'baf', 'bl'];
+  const pick = mulberry32((seed >>> 0) || 1);
+  const deadline = Date.now() + Math.max(250, budgetMs);
+
+  let best = null; // {heuristic, seed(0 = no shuffle), missing, utilization}
+  const tryOne = (heuristic, restartSeed) => {
+    const nest = nestParts({
+      sheetW,
+      sheetH,
+      margin,
+      gap,
+      allowRotate,
+      maxTotal,
+      order: 'priority',
+      heuristic,
+      rng: restartSeed ? mulberry32(restartSeed) : null,
+      parts: rects,
+    });
+    let missing = 0;
+    for (const u of nest.unplaced) missing += (u.count || 0) * (membersOf[u.id] || 1);
+    if (!best || missing < best.missing
+      || (missing === best.missing && nest.utilization > best.utilization + 1e-9)) {
+      best = { heuristic, seed: restartSeed, missing, utilization: nest.utilization };
+    }
+  };
+
+  tryOne('bssf', 0); // restart 0 = the standard GENERIRAJ result
+  tryOne('baf', 0);
+  tryOne('bl', 0);
+  let restarts = 3;
+  while (Date.now() < deadline && restarts < maxRestarts) {
+    tryOne(heuristics[Math.floor(pick() * heuristics.length)],
+      1 + Math.floor(pick() * 0xFFFFFFFE));
+    restarts += 1;
+  }
+
+  const res = generateSheet({
+    ...opts,
+    order: 'priority',
+    heuristic: best.heuristic,
+    rng: best.seed ? mulberry32(best.seed) : null,
+  });
+  if (res.totalPlaced === 0) return null;
+  return {
+    ...res, variant: 'stisnuto', variantLabel: 'Stisnuto jače', denseRestarts: restarts,
+  };
+}
+
+// "Na knap" probes: tiny sheet enlargements (dW along X/sirina, dH along
+// Y/duljina), smallest first, capped by the user's limit (default +10 mm).
+const KNAP_BUMPS = [
+  [0, 1], [1, 0], [1, 1], [0, 2], [2, 0], [2, 2], [3, 3],
+  [0, 5], [5, 0], [5, 5], [8, 8], [0, 10], [10, 0], [10, 10],
+];
+
+/**
+ * "Na knap": when something almost fits, try a slightly bigger sheet.
+ * Returns the first probe that places MORE than the best regular sheet did
+ * (fewer unplaced), tagged {variant:'naknap', knapDims:{width,height}} where
+ * width = X/sirina and height = Y/duljina of the enlarged sheet. Null when
+ * no small bump helps.
+ */
+function generateKnap(opts, baselineUnplaced, maxBump) {
+  const limit = Number.isFinite(maxBump) ? maxBump : 10;
+  if (!(baselineUnplaced > 0) || limit <= 0) return null;
+  for (const [bw, bh] of KNAP_BUMPS) {
+    if (bw > limit || bh > limit) continue;
+    const res = generateSheet({
+      ...opts, sheetW: opts.sheetW + bw, sheetH: opts.sheetH + bh, order: 'priority',
+    });
+    if (res.totalPlaced > 0 && unplacedTotal(res) < baselineUnplaced) {
+      return {
+        ...res,
+        variant: 'naknap',
+        variantLabel: 'Na knap +' + Math.max(bw, bh) + ' mm',
+        knapDims: { width: opts.sheetW + bw, height: opts.sheetH + bh },
+        knapBump: { w: bw, h: bh },
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * One-stop generation for a GENERIRAJ / STISNI JACE press. Returns the
+ * ordered list of sheets to offer:
+ *   [stisnuto?] + [prioriteti, krupno, sitno] + [naknap?]
+ * - stisnuto only when `dense` is requested AND it differs from the regular
+ *   sheets (identical layouts are deduplicated);
+ * - naknap only when even the best regular/dense sheet leaves something
+ *   unplaced and a bump of at most `knapMax` mm fits more.
+ */
+function generateAll(opts, extra) {
+  const { dense = false, budgetMs, seed, maxRestarts, knapMax = 10 } = extra || {};
+  const out = [];
+  const seen = new Set();
+  const sigOf = (res) => JSON.stringify(res.placements.map((p) => [
+    p.id, Math.round(p.x * 10), Math.round(p.y * 10), p.turn,
+  ]).sort());
+  let minUnplaced = Infinity;
+
+  const defs = [
+    { variant: 'prioriteti', variantLabel: 'Po prioritetima', order: 'priority' },
+    { variant: 'krupno', variantLabel: 'Krupni komadi', order: 'big' },
+    { variant: 'sitno', variantLabel: 'Sitni komadi', order: 'small' },
+  ];
+  for (const d of defs) {
+    const res = generateSheet({ ...opts, order: d.order });
+    minUnplaced = Math.min(minUnplaced, unplacedTotal(res));
+    if (res.totalPlaced === 0) continue;
+    const s = sigOf(res);
+    if (seen.has(s)) continue;
+    seen.add(s);
+    out.push({ ...res, variant: d.variant, variantLabel: d.variantLabel });
+  }
+
+  if (dense) {
+    const dres = generateDense(opts, { budgetMs, seed, maxRestarts });
+    if (dres) {
+      minUnplaced = Math.min(minUnplaced, unplacedTotal(dres));
+      const s = sigOf(dres);
+      if (!seen.has(s)) {
+        seen.add(s);
+        out.unshift(dres); // best sheet first
+      }
+    }
+  }
+
+  if (Number.isFinite(minUnplaced) && minUnplaced > 0) {
+    const knap = generateKnap(opts, minUnplaced, knapMax);
+    if (knap) out.push(knap);
+  }
+  return out;
+}
+
 /**
  * Re-create a sheet DXF from stored placements (the compact history record)
  * without re-running the nesting. Produces byte-identical output to the
@@ -3227,7 +3466,8 @@ function buildSheetDxf(opts) {
 }
 
 module.exports = {
-  analyzePart, generateSheet, generateVariants, buildSheetDxf, buildUnits, applySet,
+  analyzePart, generateSheet, generateVariants, generateDense, generateKnap,
+  generateAll, buildSheetDxf, buildUnits, applySet,
 };
 
 })(module);
@@ -3241,7 +3481,7 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
  * and SAMPLE_FILES/SAMPLE_CONFIG are provided by the bundle.
  */
 (function () {
-  const { analyzePart, applySet, buildSheetDxf, generateVariants } = __req('parts');
+  const { analyzePart, applySet, buildSheetDxf, generateAll } = __req('parts');
   const PAIR_MIRRORED = ['priority', 'mode', 'count', 'maxCount'];
 
   // ---- storage (localStorage with in-memory fallback) ----
@@ -3584,7 +3824,7 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
       let variants;
       const t0 = performance.now();
       try {
-        variants = generateVariants({
+        variants = generateAll({
           sheetW: width,
           sheetH: height,
           margin: settings.margin,
@@ -3592,6 +3832,13 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
           allowRotate: settings.allowRotate,
           addFrame: settings.addFrame,
           parts: effective,
+        }, {
+          dense: !!(req && req.dense),
+          // The browser runs everything on the UI thread - keep the dense
+          // search short enough that the page never feels frozen.
+          budgetMs: 2500,
+          seed: (Date.now() >>> 0) || 1,
+          knapMax: 10,
         });
       } catch (e) {
         return { ok: false, message: (e && e.message) || String(e) };
@@ -3613,7 +3860,9 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
       for (let vi = 0; vi < variants.length; vi++) {
         const result = variants[vi];
         const id = newId();
-        const fileName = 'Ploca_' + Math.round(height) + 'x' + Math.round(width)
+        const eWidth = result.knapDims ? result.knapDims.width : width;
+        const eHeight = result.knapDims ? result.knapDims.height : height;
+        const fileName = 'Ploca_' + Math.round(eHeight) + 'x' + Math.round(eWidth)
           + '_' + stamp + '_v' + (vi + 1) + '_' + id.slice(-4) + '.dxf';
         entries.push({
           id,
@@ -3621,8 +3870,8 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
           variant: result.variant,
           variantLabel: result.variantLabel,
           date: now.toISOString(),
-          width,
-          height,
+          width: eWidth,
+          height: eHeight,
           fileName,
           addFrame: !!settings.addFrame,
           setName: set ? set.name : null,
@@ -3650,6 +3899,8 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
           batch,
           variant: result.variant,
           variantLabel: result.variantLabel,
+          width: eWidth,
+          height: eHeight,
           fileName,
           unplaced: result.unplaced,
           notes: result.notes,
@@ -3690,7 +3941,7 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
     },
     pickExe: async () => null,
     pickDir: async () => null,
-    appInfo: async () => ({ version: '1.3.0 · web proba', dataDir: '' }),
+    appInfo: async () => ({ version: '1.4.0 · web proba', dataDir: '' }),
   };
 })();
 
@@ -3719,6 +3970,8 @@ const VARIANT_BADGE = {
   prioriteti: '1 · PRIORITETI',
   krupno: '2 · KRUPNO',
   sitno: '3 · SITNO',
+  stisnuto: '★ STISNUTO',
+  naknap: '⚠ NA KNAP',
 };
 
 // ---------------------------------------------------------------------------
@@ -3943,7 +4196,7 @@ function renderSetBar() {
   for (const s of state.sets) bar.appendChild(mk(s.name, s.id));
 }
 
-async function generate() {
+async function generate(dense) {
   if ($('btnGenerate').disabled) return; // already running (Enter bypasses the button)
   const len = parseNum($('inLen').value);   // DULJINA -> Y (sheetH)
   const wid = parseNum($('inWid').value);   // ŠIRINA  -> X (sheetW)
@@ -3959,10 +4212,16 @@ async function generate() {
   }
 
   const btn = $('btnGenerate');
+  const btnD = $('btnDense');
   btn.disabled = true;
-  status.textContent = 'Slažem 3 varijante ploče…';
+  btnD.disabled = true;
+  status.textContent = dense
+    ? 'Stišćem jače — tražim najgušći raspored (par sekundi)…'
+    : 'Slažem varijante ploče…';
   try {
-    const res = await bridge.generate({ width: wid, height: len });
+    // The dense search blocks for a few seconds - let the status paint first.
+    if (dense) await new Promise((r) => setTimeout(r, 30));
+    const res = await bridge.generate({ width: wid, height: len, dense: !!dense });
     if (!res.ok) {
       status.classList.add('err');
       status.textContent = res.message || 'Generiranje nije uspjelo.';
@@ -3973,16 +4232,26 @@ async function generate() {
     await refreshHistory();
     renderOffers();
     if (res.sheets && res.sheets.length > 0) selectSheet(res.sheets[0].sheetId);
+    if (dense && !(res.sheets || []).some((s) => s.variant === 'stisnuto')) {
+      showToast('Gušći raspored nije pronađen — standardni je već najbolji.');
+    }
+    if ((res.sheets || []).some((s) => s.variant === 'naknap')) {
+      showToast('Ponuđena je i ploča NA KNAP — malo veća, ali stane više!');
+    }
     if (res.openMessage) {
       $('genWarn').textContent = res.openMessage;
       $('genWarn').hidden = false;
     }
     if (res.opened) showToast('Otvoreno u CypCut-u: ' + res.sheets[0].fileName);
+    // Ready for the next sheet: Enter-Enter-Enter workflow without the mouse.
+    $('inLen').focus();
+    $('inLen').select();
   } catch (e) {
     status.classList.add('err');
     status.textContent = 'Greška: ' + (e && e.message ? e.message : e);
   } finally {
     btn.disabled = false;
+    btnD.disabled = false;
   }
 }
 
@@ -4013,7 +4282,13 @@ function sheetCard(entry) {
   if (entry.id === state.selectedSheetId) card.classList.add('selected');
 
   if (entry.batch && entry.batch === state.lastBatch) {
-    card.appendChild(el('div', 'badge', VARIANT_BADGE[entry.variant] || 'NOVA'));
+    const label = entry.variant === 'naknap'
+      ? '⚠ ' + (entry.variantLabel || 'NA KNAP').toUpperCase()
+      : (VARIANT_BADGE[entry.variant] || 'NOVA');
+    const badge = el('div', 'badge', label);
+    if (entry.variant === 'stisnuto') badge.classList.add('b-dense');
+    if (entry.variant === 'naknap') badge.classList.add('b-knap');
+    card.appendChild(badge);
   }
 
   const cv = document.createElement('canvas');
@@ -4090,6 +4365,9 @@ function selectSheet(id) {
 
   const warn = $('genWarn');
   const msgs = [];
+  if (entry.variant === 'naknap') {
+    msgs.push('NA KNAP: ovo je VEĆA ploča — ' + dimsText(entry) + '. Provjerite da takav lim postoji!');
+  }
   if (Array.isArray(entry.unplaced) && entry.unplaced.length > 0) {
     msgs.push('NIJE STALO: ' + entry.unplaced.map((u) => u.name + ' ×' + u.count).join(', '));
   }
@@ -4118,11 +4396,20 @@ async function saveSheetFeedback(id) {
   }
 }
 
-$('btnGenerate').addEventListener('click', generate);
+$('btnGenerate').addEventListener('click', () => generate(false));
+$('btnDense').addEventListener('click', () => generate(true));
+// Enter chain, no mouse needed: DULJINA -> Enter -> ŠIRINA -> Enter -> generate.
+$('inLen').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.repeat) {
+    const w = $('inWid');
+    w.focus();
+    w.select();
+  }
+});
+$('inWid').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.repeat) generate(false);
+});
 for (const id of ['inLen', 'inWid']) {
-  $(id).addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.repeat) generate();
-  });
   $(id).addEventListener('input', renderOffers);
 }
 $('btnOpen').addEventListener('click', () => {

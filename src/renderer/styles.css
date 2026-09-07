@@ -200,6 +200,16 @@ html, body {
   filter: grayscale(0.7) brightness(0.7);
   cursor: wait;
 }
+/* Secondary big button: slower multi-restart dense search. */
+.generate.dense {
+  font-size: clamp(14px, 3vw, 18px);
+  padding: 9px 14px;
+  background: transparent;
+  border: 2px solid var(--accent);
+  color: var(--accent2);
+  box-shadow: none;
+}
+.generate.dense:hover { background: rgba(255, 122, 26, 0.12); filter: none; }
 
 .status {
   font-size: 16px;
@@ -262,6 +272,8 @@ html, body {
   letter-spacing: 1px;
 }
 .sheet-card .badge.old { background: #58a6ff; color: #04182e; }
+.sheet-card .badge.b-dense { background: #c39bff; color: #1d0a38; }
+.sheet-card .badge.b-knap { background: #ffd23e; color: #3a2a00; }
 .drag-hint { color: var(--muted); font-size: 13px; margin-top: 8px; }
 
 /* ---------------- result ---------------- */

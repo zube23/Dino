@@ -9,13 +9,17 @@
   const PAIR_MIRRORED = ['priority', 'mode', 'count', 'maxCount'];
 
   // ---- storage (localStorage with in-memory fallback) ----
+  // mem is written on every store() and is therefore always at least as
+  // fresh as localStorage: when a quota-exceeded write fails, the session
+  // must keep seeing the new value, not the stale persisted one.
   const mem = {};
   function load(key, fallback) {
+    if (key in mem) return mem[key];
     try {
       const v = localStorage.getItem('dinonest.' + key);
       if (v !== null) return JSON.parse(v);
     } catch (e) { /* blocked or corrupt - fall through */ }
-    return (key in mem) ? mem[key] : fallback;
+    return fallback;
   }
   function store(key, value) {
     mem[key] = value;
@@ -465,6 +469,6 @@
     },
     pickExe: async () => null,
     pickDir: async () => null,
-    appInfo: async () => ({ version: '1.4.0 · web proba', dataDir: '' }),
+    appInfo: async () => ({ version: '1.4.1 · web proba', dataDir: '' }),
   };
 })();

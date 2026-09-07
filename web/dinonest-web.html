@@ -2453,8 +2453,8 @@ function nestParts(opts) {
   const fillersFirst = order === 'small';
 
   // Optional randomness for the dense multi-restart search. Priorities stay
-  // hard boundaries: fixed parts are only shuffled WITHIN the same priority,
-  // fillers may be shuffled freely (they are best-effort anyway).
+  // hard boundaries for fixed parts AND fillers: both are only shuffled
+  // WITHIN the same priority group.
   const shuffle = (arr) => {
     for (let i = arr.length - 1; i > 0; i--) {
       const j = Math.floor(rng() * (i + 1));
@@ -2518,7 +2518,7 @@ function nestParts(opts) {
 
   const placeFillers = () => {
     let fillers = parts.filter((p) => p.mode === 'filler').slice().sort(fillerCmp);
-    if (rng) fillers = shuffle(fillers);
+    if (rng) fillers = shuffleWithinPriority(fillers);
     for (const part of fillers) {
       const cap = part.maxCount && part.maxCount > 0 ? Math.floor(part.maxCount) : Infinity;
       let placed = placedCounts[part.id] || 0;
@@ -3242,6 +3242,34 @@ function unplacedTotal(res) {
 }
 
 /**
+ * Cheap search representation: packer rectangles for the part units plus the
+ * member count per unit, so unit-level nest results can be scored in the
+ * same member-weighted terms generateSheet reports (a missed duo = 2 parts).
+ */
+function unitRects(parts, gap) {
+  const { units } = buildUnits(parts, gap);
+  const rects = units.map((u) => ({
+    id: u.uid,
+    w: u.w,
+    h: u.h,
+    area: u.area,
+    priority: u.priority,
+    mode: u.mode,
+    count: u.count,
+    maxCount: u.maxCount,
+  }));
+  const membersOf = {};
+  for (const u of units) membersOf[u.uid] = u.members.length;
+  return { rects, membersOf };
+}
+
+function missingMembers(nest, membersOf) {
+  let missing = 0;
+  for (const u of nest.unplaced) missing += (u.count || 0) * (membersOf[u.id] || 1);
+  return missing;
+}
+
+/**
  * "STISNI JACE": multi-restart search over placement heuristics and
  * randomized part orders (shuffled only WITHIN the same priority, so
  * priorities still hold). Restart 0 is the exact deterministic baseline of
@@ -3259,20 +3287,7 @@ function generateDense(opts, denseOpts) {
   } = opts;
   const { budgetMs = 5000, seed = 1, maxRestarts = 20000 } = denseOpts || {};
 
-  const { units } = buildUnits(parts, gap);
-  const rects = units.map((u) => ({
-    id: u.uid,
-    w: u.w,
-    h: u.h,
-    area: u.area,
-    priority: u.priority,
-    mode: u.mode,
-    count: u.count,
-    maxCount: u.maxCount,
-  }));
-  const membersOf = {};
-  for (const u of units) membersOf[u.uid] = u.members.length;
-
+  const { rects, membersOf } = unitRects(parts, gap);
   const heuristics = ['bssf', 'baf', 'bl'];
   const pick = mulberry32((seed >>> 0) || 1);
   const deadline = Date.now() + Math.max(250, budgetMs);
@@ -3291,8 +3306,7 @@ function generateDense(opts, denseOpts) {
       rng: restartSeed ? mulberry32(restartSeed) : null,
       parts: rects,
     });
-    let missing = 0;
-    for (const u of nest.unplaced) missing += (u.count || 0) * (membersOf[u.id] || 1);
+    const missing = missingMembers(nest, membersOf);
     if (!best || missing < best.missing
       || (missing === best.missing && nest.utilization > best.utilization + 1e-9)) {
       best = { heuristic, seed: restartSeed, missing, utilization: nest.utilization };
@@ -3330,27 +3344,56 @@ const KNAP_BUMPS = [
 
 /**
  * "Na knap": when something almost fits, try a slightly bigger sheet.
- * Returns the first probe that places MORE than the best regular sheet did
- * (fewer unplaced), tagged {variant:'naknap', knapDims:{width,height}} where
- * width = X/sirina and height = Y/duljina of the enlarged sheet. Null when
- * no small bump helps.
+ * Probes are scored cheaply at unit level with ALL THREE fill orders (the
+ * baseline is the best of all offered sheets, so beating it may need the
+ * big-first or small-first strategy too); the full sheet is materialized
+ * only for the winning bump+order. Returns the smallest bump that places
+ * more than the best regular sheet did (fewer unplaced), tagged
+ * {variant:'naknap', knapDims:{width,height}} where width = X/sirina and
+ * height = Y/duljina of the enlarged sheet. Null when no small bump helps.
  */
 function generateKnap(opts, baselineUnplaced, maxBump) {
   const limit = Number.isFinite(maxBump) ? maxBump : 10;
   if (!(baselineUnplaced > 0) || limit <= 0) return null;
+  const {
+    sheetW, sheetH, margin = 10, gap = 8, allowRotate = true,
+    parts = [], maxTotal,
+  } = opts;
+  const { rects, membersOf } = unitRects(parts, gap);
+
   for (const [bw, bh] of KNAP_BUMPS) {
     if (bw > limit || bh > limit) continue;
-    const res = generateSheet({
-      ...opts, sheetW: opts.sheetW + bw, sheetH: opts.sheetH + bh, order: 'priority',
-    });
-    if (res.totalPlaced > 0 && unplacedTotal(res) < baselineUnplaced) {
-      return {
-        ...res,
-        variant: 'naknap',
-        variantLabel: 'Na knap +' + Math.max(bw, bh) + ' mm',
-        knapDims: { width: opts.sheetW + bw, height: opts.sheetH + bh },
-        knapBump: { w: bw, h: bh },
-      };
+    let best = null; // {order, missing, utilization}
+    for (const order of ['priority', 'big', 'small']) {
+      const nest = nestParts({
+        sheetW: sheetW + bw,
+        sheetH: sheetH + bh,
+        margin,
+        gap,
+        allowRotate,
+        maxTotal,
+        order,
+        parts: rects,
+      });
+      const missing = missingMembers(nest, membersOf);
+      if (!best || missing < best.missing
+        || (missing === best.missing && nest.utilization > best.utilization + 1e-9)) {
+        best = { order, missing, utilization: nest.utilization };
+      }
+    }
+    if (best.missing < baselineUnplaced) {
+      const res = generateSheet({
+        ...opts, sheetW: sheetW + bw, sheetH: sheetH + bh, order: best.order,
+      });
+      if (res.totalPlaced > 0) {
+        return {
+          ...res,
+          variant: 'naknap',
+          variantLabel: 'Na knap +' + Math.max(bw, bh) + ' mm',
+          knapDims: { width: sheetW + bw, height: sheetH + bh },
+          knapBump: { w: bw, h: bh },
+        };
+      }
     }
   }
   return null;
@@ -3485,13 +3528,17 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
   const PAIR_MIRRORED = ['priority', 'mode', 'count', 'maxCount'];
 
   // ---- storage (localStorage with in-memory fallback) ----
+  // mem is written on every store() and is therefore always at least as
+  // fresh as localStorage: when a quota-exceeded write fails, the session
+  // must keep seeing the new value, not the stale persisted one.
   const mem = {};
   function load(key, fallback) {
+    if (key in mem) return mem[key];
     try {
       const v = localStorage.getItem('dinonest.' + key);
       if (v !== null) return JSON.parse(v);
     } catch (e) { /* blocked or corrupt - fall through */ }
-    return (key in mem) ? mem[key] : fallback;
+    return fallback;
   }
   function store(key, value) {
     mem[key] = value;
@@ -3941,7 +3988,7 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
     },
     pickExe: async () => null,
     pickDir: async () => null,
-    appInfo: async () => ({ version: '1.4.0 · web proba', dataDir: '' }),
+    appInfo: async () => ({ version: '1.4.1 · web proba', dataDir: '' }),
   };
 })();
 
@@ -4201,15 +4248,15 @@ async function generate(dense) {
   const len = parseNum($('inLen').value);   // DULJINA -> Y (sheetH)
   const wid = parseNum($('inWid').value);   // ŠIRINA  -> X (sheetW)
   const status = $('genStatus');
-  $('genWarn').hidden = true;
   status.hidden = false;
   status.className = 'status';
 
   if (!Number.isFinite(len) || !Number.isFinite(wid) || len <= 0 || wid <= 0) {
     status.classList.add('err');
     status.textContent = 'Upišite duljinu i širinu ploče u milimetrima.';
-    return;
+    return; // keep the selected sheet's warnings (#genWarn) untouched
   }
+  $('genWarn').hidden = true;
 
   const btn = $('btnGenerate');
   const btnD = $('btnDense');
@@ -4219,8 +4266,9 @@ async function generate(dense) {
     ? 'Stišćem jače — tražim najgušći raspored (par sekundi)…'
     : 'Slažem varijante ploče…';
   try {
-    // The dense search blocks for a few seconds - let the status paint first.
-    if (dense) await new Promise((r) => setTimeout(r, 30));
+    // The web bridge nests synchronously on the UI thread (seconds for the
+    // dense search) - yield once so the status and disabled buttons paint.
+    if (dense || IS_WEB) await new Promise((r) => setTimeout(r, 30));
     const res = await bridge.generate({ width: wid, height: len, dense: !!dense });
     if (!res.ok) {
       status.classList.add('err');
@@ -4232,20 +4280,34 @@ async function generate(dense) {
     await refreshHistory();
     renderOffers();
     if (res.sheets && res.sheets.length > 0) selectSheet(res.sheets[0].sheetId);
+    // One toast for everything - sequential showToast calls would overwrite
+    // each other (single #toast element).
+    const toasts = [];
     if (dense && !(res.sheets || []).some((s) => s.variant === 'stisnuto')) {
-      showToast('Gušći raspored nije pronađen — standardni je već najbolji.');
+      toasts.push('Gušći raspored nije pronađen — standardni je već najbolji.');
     }
     if ((res.sheets || []).some((s) => s.variant === 'naknap')) {
-      showToast('Ponuđena je i ploča NA KNAP — malo veća, ali stane više!');
+      toasts.push('Ponuđena je i ploča NA KNAP — malo veća, ali stane više!');
     }
+    if (res.opened) toasts.push('Otvoreno u CypCut-u: ' + res.sheets[0].fileName);
+    if (toasts.length > 0) showToast(toasts.join('  '));
     if (res.openMessage) {
-      $('genWarn').textContent = res.openMessage;
-      $('genWarn').hidden = false;
+      // Append - selectSheet may just have written NIJE STALO / NA KNAP here.
+      const w = $('genWarn');
+      w.textContent = (w.hidden || !w.textContent)
+        ? res.openMessage
+        : w.textContent + '  ·  ' + res.openMessage;
+      w.hidden = false;
     }
-    if (res.opened) showToast('Otvoreno u CypCut-u: ' + res.sheets[0].fileName);
     // Ready for the next sheet: Enter-Enter-Enter workflow without the mouse.
-    $('inLen').focus();
-    $('inLen').select();
+    // But never steal focus if the operator has meanwhile clicked elsewhere
+    // (e.g. is correcting a value or editing a setting).
+    const ae = document.activeElement;
+    if (!ae || ae === document.body || ae.id === 'inLen' || ae.id === 'inWid'
+      || ae.id === 'btnGenerate' || ae.id === 'btnDense') {
+      $('inLen').focus();
+      $('inLen').select();
+    }
   } catch (e) {
     status.classList.add('err');
     status.textContent = 'Greška: ' + (e && e.message ? e.message : e);
@@ -4266,7 +4328,11 @@ function currentMatches() {
   const wid = parseNum($('inWid').value);
   if (!Number.isFinite(len) || !Number.isFinite(wid) || len <= 0 || wid <= 0) return null;
   const tol = (state.settings && Number.isFinite(state.settings.histTol)) ? state.settings.histTol : 20;
-  const matches = state.history.filter((s) => dimsMatch(s, wid, len, tol));
+  // Sheets from the just-generated batch always match with at least the
+  // maximum na-knap bump as tolerance - otherwise a strict histTol (< 10 mm)
+  // would hide the NA KNAP card the toast just announced.
+  const tolFor = (s) => (s.batch && s.batch === state.lastBatch ? Math.max(tol, 12) : tol);
+  const matches = state.history.filter((s) => dimsMatch(s, wid, len, tolFor(s)));
   const isNew = (s) => (s.batch && s.batch === state.lastBatch) ? 0 : 1;
   matches.sort((a, b) => {
     if (isNew(a) !== isNew(b)) return isNew(a) - isNew(b);
@@ -4281,13 +4347,15 @@ function sheetCard(entry) {
   card.dataset.id = entry.id;
   if (entry.id === state.selectedSheetId) card.classList.add('selected');
 
-  if (entry.batch && entry.batch === state.lastBatch) {
-    const label = entry.variant === 'naknap'
-      ? '⚠ ' + (entry.variantLabel || 'NA KNAP').toUpperCase()
-      : (VARIANT_BADGE[entry.variant] || 'NOVA');
-    const badge = el('div', 'badge', label);
+  if (entry.variant === 'naknap') {
+    // The bigger-sheet warning must survive on the card itself, whatever the
+    // batch age - old naknap sheets can be dragged into CypCut without a
+    // click, so the card is the only place the operator is sure to look.
+    const badge = el('div', 'badge b-knap', '⚠ ' + (entry.variantLabel || 'NA KNAP').toUpperCase());
+    card.appendChild(badge);
+  } else if (entry.batch && entry.batch === state.lastBatch) {
+    const badge = el('div', 'badge', VARIANT_BADGE[entry.variant] || 'NOVA');
     if (entry.variant === 'stisnuto') badge.classList.add('b-dense');
-    if (entry.variant === 'naknap') badge.classList.add('b-knap');
     card.appendChild(badge);
   }
 

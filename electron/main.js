@@ -590,13 +590,20 @@ ipcMain.handle('nest:generate', async (ev, req) => {
   let opened = false;
   let openMessage = '';
   if (settings.autoOpen) {
-    try {
-      const p = materializeSheet(entries[0]);
-      const r = await openDxf(p, settings);
-      opened = r.ok;
-      openMessage = r.message || '';
-    } catch (e) {
-      openMessage = e && e.message ? e.message : String(e);
+    // Never auto-load a NA KNAP sheet into CypCut: it is BIGGER than the lim
+    // the operator asked for, so it must be a conscious manual choice.
+    if (entries[0].variant === 'naknap') {
+      openMessage = 'NA KNAP ploča se ne otvara automatski (veća je od tražene '
+        + height + ' × ' + width + ' mm) — provjerite lim pa je otvorite ručno.';
+    } else {
+      try {
+        const p = materializeSheet(entries[0]);
+        const r = await openDxf(p, settings);
+        opened = r.ok;
+        openMessage = r.message || '';
+      } catch (e) {
+        openMessage = e && e.message ? e.message : String(e);
+      }
     }
   }
 

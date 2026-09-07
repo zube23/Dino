@@ -474,6 +474,34 @@ function unplacedTotal(res) {
 }
 
 /**
+ * Cheap search representation: packer rectangles for the part units plus the
+ * member count per unit, so unit-level nest results can be scored in the
+ * same member-weighted terms generateSheet reports (a missed duo = 2 parts).
+ */
+function unitRects(parts, gap) {
+  const { units } = buildUnits(parts, gap);
+  const rects = units.map((u) => ({
+    id: u.uid,
+    w: u.w,
+    h: u.h,
+    area: u.area,
+    priority: u.priority,
+    mode: u.mode,
+    count: u.count,
+    maxCount: u.maxCount,
+  }));
+  const membersOf = {};
+  for (const u of units) membersOf[u.uid] = u.members.length;
+  return { rects, membersOf };
+}
+
+function missingMembers(nest, membersOf) {
+  let missing = 0;
+  for (const u of nest.unplaced) missing += (u.count || 0) * (membersOf[u.id] || 1);
+  return missing;
+}
+
+/**
  * "STISNI JACE": multi-restart search over placement heuristics and
  * randomized part orders (shuffled only WITHIN the same priority, so
  * priorities still hold). Restart 0 is the exact deterministic baseline of
@@ -491,20 +519,7 @@ function generateDense(opts, denseOpts) {
   } = opts;
   const { budgetMs = 5000, seed = 1, maxRestarts = 20000 } = denseOpts || {};
 
-  const { units } = buildUnits(parts, gap);
-  const rects = units.map((u) => ({
-    id: u.uid,
-    w: u.w,
-    h: u.h,
-    area: u.area,
-    priority: u.priority,
-    mode: u.mode,
-    count: u.count,
-    maxCount: u.maxCount,
-  }));
-  const membersOf = {};
-  for (const u of units) membersOf[u.uid] = u.members.length;
-
+  const { rects, membersOf } = unitRects(parts, gap);
   const heuristics = ['bssf', 'baf', 'bl'];
   const pick = mulberry32((seed >>> 0) || 1);
   const deadline = Date.now() + Math.max(250, budgetMs);
@@ -523,8 +538,7 @@ function generateDense(opts, denseOpts) {
       rng: restartSeed ? mulberry32(restartSeed) : null,
       parts: rects,
     });
-    let missing = 0;
-    for (const u of nest.unplaced) missing += (u.count || 0) * (membersOf[u.id] || 1);
+    const missing = missingMembers(nest, membersOf);
     if (!best || missing < best.missing
       || (missing === best.missing && nest.utilization > best.utilization + 1e-9)) {
       best = { heuristic, seed: restartSeed, missing, utilization: nest.utilization };
@@ -562,27 +576,56 @@ const KNAP_BUMPS = [
 
 /**
  * "Na knap": when something almost fits, try a slightly bigger sheet.
- * Returns the first probe that places MORE than the best regular sheet did
- * (fewer unplaced), tagged {variant:'naknap', knapDims:{width,height}} where
- * width = X/sirina and height = Y/duljina of the enlarged sheet. Null when
- * no small bump helps.
+ * Probes are scored cheaply at unit level with ALL THREE fill orders (the
+ * baseline is the best of all offered sheets, so beating it may need the
+ * big-first or small-first strategy too); the full sheet is materialized
+ * only for the winning bump+order. Returns the smallest bump that places
+ * more than the best regular sheet did (fewer unplaced), tagged
+ * {variant:'naknap', knapDims:{width,height}} where width = X/sirina and
+ * height = Y/duljina of the enlarged sheet. Null when no small bump helps.
  */
 function generateKnap(opts, baselineUnplaced, maxBump) {
   const limit = Number.isFinite(maxBump) ? maxBump : 10;
   if (!(baselineUnplaced > 0) || limit <= 0) return null;
+  const {
+    sheetW, sheetH, margin = 10, gap = 8, allowRotate = true,
+    parts = [], maxTotal,
+  } = opts;
+  const { rects, membersOf } = unitRects(parts, gap);
+
   for (const [bw, bh] of KNAP_BUMPS) {
     if (bw > limit || bh > limit) continue;
-    const res = generateSheet({
-      ...opts, sheetW: opts.sheetW + bw, sheetH: opts.sheetH + bh, order: 'priority',
-    });
-    if (res.totalPlaced > 0 && unplacedTotal(res) < baselineUnplaced) {
-      return {
-        ...res,
-        variant: 'naknap',
-        variantLabel: 'Na knap +' + Math.max(bw, bh) + ' mm',
-        knapDims: { width: opts.sheetW + bw, height: opts.sheetH + bh },
-        knapBump: { w: bw, h: bh },
-      };
+    let best = null; // {order, missing, utilization}
+    for (const order of ['priority', 'big', 'small']) {
+      const nest = nestParts({
+        sheetW: sheetW + bw,
+        sheetH: sheetH + bh,
+        margin,
+        gap,
+        allowRotate,
+        maxTotal,
+        order,
+        parts: rects,
+      });
+      const missing = missingMembers(nest, membersOf);
+      if (!best || missing < best.missing
+        || (missing === best.missing && nest.utilization > best.utilization + 1e-9)) {
+        best = { order, missing, utilization: nest.utilization };
+      }
+    }
+    if (best.missing < baselineUnplaced) {
+      const res = generateSheet({
+        ...opts, sheetW: sheetW + bw, sheetH: sheetH + bh, order: best.order,
+      });
+      if (res.totalPlaced > 0) {
+        return {
+          ...res,
+          variant: 'naknap',
+          variantLabel: 'Na knap +' + Math.max(bw, bh) + ' mm',
+          knapDims: { width: sheetW + bw, height: sheetH + bh },
+          knapBump: { w: bw, h: bh },
+        };
+      }
     }
   }
   return null;

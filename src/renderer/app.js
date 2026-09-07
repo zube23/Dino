@@ -254,15 +254,15 @@ async function generate(dense) {
   const len = parseNum($('inLen').value);   // DULJINA -> Y (sheetH)
   const wid = parseNum($('inWid').value);   // ŠIRINA  -> X (sheetW)
   const status = $('genStatus');
-  $('genWarn').hidden = true;
   status.hidden = false;
   status.className = 'status';
 
   if (!Number.isFinite(len) || !Number.isFinite(wid) || len <= 0 || wid <= 0) {
     status.classList.add('err');
     status.textContent = 'Upišite duljinu i širinu ploče u milimetrima.';
-    return;
+    return; // keep the selected sheet's warnings (#genWarn) untouched
   }
+  $('genWarn').hidden = true;
 
   const btn = $('btnGenerate');
   const btnD = $('btnDense');
@@ -272,8 +272,9 @@ async function generate(dense) {
     ? 'Stišćem jače — tražim najgušći raspored (par sekundi)…'
     : 'Slažem varijante ploče…';
   try {
-    // The dense search blocks for a few seconds - let the status paint first.
-    if (dense) await new Promise((r) => setTimeout(r, 30));
+    // The web bridge nests synchronously on the UI thread (seconds for the
+    // dense search) - yield once so the status and disabled buttons paint.
+    if (dense || IS_WEB) await new Promise((r) => setTimeout(r, 30));
     const res = await bridge.generate({ width: wid, height: len, dense: !!dense });
     if (!res.ok) {
       status.classList.add('err');
@@ -285,20 +286,34 @@ async function generate(dense) {
     await refreshHistory();
     renderOffers();
     if (res.sheets && res.sheets.length > 0) selectSheet(res.sheets[0].sheetId);
+    // One toast for everything - sequential showToast calls would overwrite
+    // each other (single #toast element).
+    const toasts = [];
     if (dense && !(res.sheets || []).some((s) => s.variant === 'stisnuto')) {
-      showToast('Gušći raspored nije pronađen — standardni je već najbolji.');
+      toasts.push('Gušći raspored nije pronađen — standardni je već najbolji.');
     }
     if ((res.sheets || []).some((s) => s.variant === 'naknap')) {
-      showToast('Ponuđena je i ploča NA KNAP — malo veća, ali stane više!');
+      toasts.push('Ponuđena je i ploča NA KNAP — malo veća, ali stane više!');
     }
+    if (res.opened) toasts.push('Otvoreno u CypCut-u: ' + res.sheets[0].fileName);
+    if (toasts.length > 0) showToast(toasts.join('  '));
     if (res.openMessage) {
-      $('genWarn').textContent = res.openMessage;
-      $('genWarn').hidden = false;
+      // Append - selectSheet may just have written NIJE STALO / NA KNAP here.
+      const w = $('genWarn');
+      w.textContent = (w.hidden || !w.textContent)
+        ? res.openMessage
+        : w.textContent + '  ·  ' + res.openMessage;
+      w.hidden = false;
     }
-    if (res.opened) showToast('Otvoreno u CypCut-u: ' + res.sheets[0].fileName);
     // Ready for the next sheet: Enter-Enter-Enter workflow without the mouse.
-    $('inLen').focus();
-    $('inLen').select();
+    // But never steal focus if the operator has meanwhile clicked elsewhere
+    // (e.g. is correcting a value or editing a setting).
+    const ae = document.activeElement;
+    if (!ae || ae === document.body || ae.id === 'inLen' || ae.id === 'inWid'
+      || ae.id === 'btnGenerate' || ae.id === 'btnDense') {
+      $('inLen').focus();
+      $('inLen').select();
+    }
   } catch (e) {
     status.classList.add('err');
     status.textContent = 'Greška: ' + (e && e.message ? e.message : e);
@@ -319,7 +334,11 @@ function currentMatches() {
   const wid = parseNum($('inWid').value);
   if (!Number.isFinite(len) || !Number.isFinite(wid) || len <= 0 || wid <= 0) return null;
   const tol = (state.settings && Number.isFinite(state.settings.histTol)) ? state.settings.histTol : 20;
-  const matches = state.history.filter((s) => dimsMatch(s, wid, len, tol));
+  // Sheets from the just-generated batch always match with at least the
+  // maximum na-knap bump as tolerance - otherwise a strict histTol (< 10 mm)
+  // would hide the NA KNAP card the toast just announced.
+  const tolFor = (s) => (s.batch && s.batch === state.lastBatch ? Math.max(tol, 12) : tol);
+  const matches = state.history.filter((s) => dimsMatch(s, wid, len, tolFor(s)));
   const isNew = (s) => (s.batch && s.batch === state.lastBatch) ? 0 : 1;
   matches.sort((a, b) => {
     if (isNew(a) !== isNew(b)) return isNew(a) - isNew(b);
@@ -334,13 +353,15 @@ function sheetCard(entry) {
   card.dataset.id = entry.id;
   if (entry.id === state.selectedSheetId) card.classList.add('selected');
 
-  if (entry.batch && entry.batch === state.lastBatch) {
-    const label = entry.variant === 'naknap'
-      ? '⚠ ' + (entry.variantLabel || 'NA KNAP').toUpperCase()
-      : (VARIANT_BADGE[entry.variant] || 'NOVA');
-    const badge = el('div', 'badge', label);
+  if (entry.variant === 'naknap') {
+    // The bigger-sheet warning must survive on the card itself, whatever the
+    // batch age - old naknap sheets can be dragged into CypCut without a
+    // click, so the card is the only place the operator is sure to look.
+    const badge = el('div', 'badge b-knap', '⚠ ' + (entry.variantLabel || 'NA KNAP').toUpperCase());
+    card.appendChild(badge);
+  } else if (entry.batch && entry.batch === state.lastBatch) {
+    const badge = el('div', 'badge', VARIANT_BADGE[entry.variant] || 'NOVA');
     if (entry.variant === 'stisnuto') badge.classList.add('b-dense');
-    if (entry.variant === 'naknap') badge.classList.add('b-knap');
     card.appendChild(badge);
   }
 

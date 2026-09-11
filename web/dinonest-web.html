@@ -298,6 +298,52 @@ html, body {
   border-radius: 12px;
 }
 .stats { font-size: 15px; color: var(--text); text-align: center; }
+#preview.zoning { cursor: crosshair; }
+.zone-hint { color: var(--accent2); font-size: 14px; font-weight: 700; text-align: center; }
+.why {
+  background: #26303d;
+  border: 1px solid #3d5a7a;
+  border-left: 5px solid #58a6ff;
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: 14px;
+  max-width: 1100px;
+  width: 100%;
+}
+.why b { color: #9fd0ff; }
+.gap-strip {
+  width: 100%;
+  max-width: 1100px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.gap-head { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-weight: 800; letter-spacing: 1px; font-size: 13px; color: var(--muted); }
+.gap-head input[type="range"] { flex: 1 1 200px; accent-color: var(--accent); }
+.gap-value { font-size: 18px; color: var(--text); min-width: 150px; }
+.gap-rows { display: flex; gap: 6px; flex-wrap: wrap; }
+.gap-rows .chip { cursor: pointer; }
+.gap-rows .chip.best { border-color: var(--ok); color: var(--ok); }
+.trash { display: flex; flex-direction: column; gap: 7px; }
+.trash-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 14px;
+}
+.trash-row canvas { background: #0d1015; border-radius: 4px; flex: 0 0 auto; }
+.trash-row .tname { flex: 1; font-weight: 700; }
+.trash-row .tdate { color: var(--muted); font-size: 12px; }
+.set-fill { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.set-fill select { font-size: 13px; padding: 3px 6px; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; max-width: 150px; }
 .stats .big { font-size: 19px; font-weight: 800; color: var(--ok); }
 .stats .files { color: var(--muted); font-size: 12px; margin-top: 3px; word-break: break-all; }
 
@@ -350,7 +396,7 @@ html, body {
 .parts { display: flex; flex-direction: column; gap: 8px; }
 .parts-head {
   display: grid;
-  grid-template-columns: minmax(200px, 1fr) 110px 120px 110px 64px 40px;
+  grid-template-columns: minmax(200px, 1fr) 110px 120px 110px 64px 64px 40px;
   gap: 10px;
   padding: 10px 10px 4px;
   color: var(--muted);
@@ -360,7 +406,7 @@ html, body {
 }
 .part-row {
   display: grid;
-  grid-template-columns: minmax(200px, 1fr) 110px 120px 110px 64px 40px;
+  grid-template-columns: minmax(200px, 1fr) 110px 120px 110px 64px 64px 40px;
   gap: 10px;
   align-items: center;
   background: var(--bg2);
@@ -535,6 +581,7 @@ html, body {
   .generate { letter-spacing: 1px; }
   .cards { grid-template-columns: 1fr; }
   .history-row .hdate, .history-row .hdims { width: auto; }
+  .set-row { flex-wrap: wrap; }
 }
 
 .demo-note {
@@ -567,12 +614,12 @@ html, body {
         <div id="setBar" class="setbar"></div>
         <div class="dims">
           <label class="dim">
-            <span>DULJINA (mm)</span>
-            <input id="inLen" type="text" inputmode="decimal" placeholder="3000" autocomplete="off">
+            <span>DULJINA (cm)</span>
+            <input id="inLen" type="text" inputmode="decimal" placeholder="300" autocomplete="off">
           </label>
           <label class="dim">
-            <span>ŠIRINA (mm)</span>
-            <input id="inWid" type="text" inputmode="decimal" placeholder="1500" autocomplete="off">
+            <span>ŠIRINA (cm)</span>
+            <input id="inWid" type="text" inputmode="decimal" placeholder="150" autocomplete="off">
           </label>
         </div>
         <button id="btnGenerate" class="generate">GENERIRAJ</button>
@@ -590,10 +637,24 @@ html, body {
 
       <div id="result" class="result" hidden>
         <canvas id="preview" width="1100" height="560"></canvas>
+        <div id="zoneHint" class="zone-hint" hidden>✏ Povuci mišem pravokutnik na ploči koji laser NE SMIJE dirati — ploča se odmah preslaže oko njega.</div>
+        <div id="whyBox" class="why" hidden></div>
         <div id="stats" class="stats"></div>
         <div class="row">
           <button id="btnOpen" class="btn">OTVORI U CYPCUT</button>
           <button id="btnSave" class="btn ghost">SPREMI DXF…</button>
+          <button id="btnZone" class="btn ghost" title="Označi dio ploče koji se ne smije rezati">✏ ZONA</button>
+          <button id="btnZoneClear" class="btn ghost" hidden>✕ OČISTI ZONU</button>
+          <button id="btnGap" class="btn ghost" title="Koliko komada stane pri drugom razmaku">↔ RAZMAK UŽIVO</button>
+        </div>
+        <div id="gapStrip" class="gap-strip" hidden>
+          <div class="gap-head">
+            <span>RAZMAK UŽIVO</span>
+            <input id="gapRange" type="range" min="0" max="30" step="1">
+            <span id="gapValue" class="gap-value"></span>
+            <button id="btnGapApply" class="btn small">PRIMIJENI I GENERIRAJ</button>
+          </div>
+          <div id="gapRows" class="gap-rows"></div>
         </div>
       </div>
     </div>
@@ -625,9 +686,15 @@ html, body {
           <div>Način</div>
           <div>Komada</div>
           <div>Uklj.</div>
+          <div title="Ne okreći: za brušeni inox/foliju — smjer ostaje kako je nacrtano">Ne okr.</div>
           <div></div>
         </div>
         <div id="partsList" class="parts"></div>
+      </section>
+
+      <section class="card" id="trashCard">
+        <h2>Kanta — obrisano u zadnjih 30 dana</h2>
+        <div id="trashList" class="trash"></div>
       </section>
 
       <section class="card">
@@ -635,17 +702,27 @@ html, body {
         <div class="settings-cols">
           <div class="sgroup">
             <h3>Slaganje na ploču</h3>
-            <label>Razmak između partova (mm)
+            <label>Razmak između partova (cm)
               <input id="setGap" type="text" inputmode="decimal">
             </label>
-            <label>Rub ploče (mm)
+            <label>Rub ploče (cm)
               <input id="setMargin" type="text" inputmode="decimal">
             </label>
-            <label>Ponude sličnih ploča — tolerancija (mm)
+            <label>Ponude sličnih ploča — tolerancija (cm)
               <input id="setHistTol" type="text" inputmode="decimal">
             </label>
             <label class="check"><input id="setRotate" type="checkbox"> Dozvoli rotaciju (90°/180°) <em>(zrcaljenje je uvijek zabranjeno)</em></label>
             <label class="check"><input id="setFrame" type="checkbox"> Dodaj okvir ploče u DXF (layer PLOCA)</label>
+          </div>
+          <div class="sgroup">
+            <h3>Rez i kostur</h3>
+            <label>Mikro-mostići na komadima manjim od (cm) <em>0 = isključeno; komad ostane držan u limu s 2–3 mostića od pola milimetra</em>
+              <input id="setTabsMax" type="text" inputmode="decimal">
+            </label>
+            <label class="check"><input id="setSkeleton" type="checkbox"> Reži kostur na trake (layer KOSTUR, reže se zadnje)</label>
+            <label>Razmak linija kostura (cm)
+              <input id="setSkeletonSpacing" type="text" inputmode="decimal">
+            </label>
           </div>
           <div class="sgroup" id="grpLaser">
             <h3>Program lasera</h3>
@@ -2253,6 +2330,76 @@ function simplifyPolyline(pts, eps) {
   return out;
 }
 
+/** Even-odd point-in-polygon test. `poly` may or may not repeat its first point. */
+function pointInPolygon(x, y, poly) {
+  let inside = false;
+  const n = poly.length;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const [xi, yi] = poly[i];
+    const [xj, yj] = poly[j];
+    if ((yi > y) !== (yj > y)) {
+      const xc = xi + ((y - yi) * (xj - xi)) / (yj - yi);
+      if (x < xc) inside = !inside;
+    }
+  }
+  return inside;
+}
+
+/**
+ * Largest axis-aligned rectangle that fits inside a closed polygon (used to
+ * turn a part's big cut-out into free nesting space). Grid-based: the
+ * polygon is rasterized at ~1/96 of its longer side, the largest all-inside
+ * block is found with the histogram method, and the result is shrunk by one
+ * cell on every side so it is guaranteed to lie inside the true outline.
+ * Returns {x, y, w, h} or null when nothing usable fits.
+ */
+function maxInscribedRect(poly, minSize) {
+  if (!Array.isArray(poly) || poly.length < 3) return null;
+  const bb = bboxOfPoints(poly);
+  if (!(bb.w > 0) || !(bb.h > 0)) return null;
+  const cs = Math.max(bb.w, bb.h) / 96;
+  const cols = Math.max(1, Math.ceil(bb.w / cs));
+  const rows = Math.max(1, Math.ceil(bb.h / cs));
+  const inside = new Uint8Array(cols * rows);
+  for (let r = 0; r < rows; r++) {
+    const y = bb.minY + (r + 0.5) * cs;
+    for (let c = 0; c < cols; c++) {
+      const x = bb.minX + (c + 0.5) * cs;
+      if (pointInPolygon(x, y, poly)) inside[r * cols + c] = 1;
+    }
+  }
+  // Maximal rectangle in a binary matrix via per-row histograms.
+  const heights = new Int32Array(cols);
+  let best = null;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) heights[c] = inside[r * cols + c] ? heights[c] + 1 : 0;
+    const stack = [];
+    for (let c = 0; c <= cols; c++) {
+      const h = c < cols ? heights[c] : 0;
+      let start = c;
+      while (stack.length && stack[stack.length - 1].h >= h) {
+        const top = stack.pop();
+        const area = top.h * (c - top.start);
+        if (!best || area > best.area) {
+          best = { area, c0: top.start, c1: c - 1, r0: r - top.h + 1, r1: r };
+        }
+        start = top.start;
+      }
+      stack.push({ start, h });
+    }
+  }
+  if (!best) return null;
+  // One-cell safety shrink on every side.
+  const x = bb.minX + (best.c0 + 1) * cs;
+  const y = bb.minY + (best.r0 + 1) * cs;
+  const w = (best.c1 - best.c0 - 1) * cs;
+  const h = (best.r1 - best.r0 - 1) * cs;
+  const min = minSize > 0 ? minSize : 0;
+  if (!(w >= min) || !(h >= min) || w <= 0 || h <= 0) return null;
+  const r1 = (n) => Math.round(n * 10) / 10;
+  return { x: r1(x), y: r1(y), w: r1(w), h: r1(h) };
+}
+
 module.exports = {
   rotatePoint,
   rotatePoints,
@@ -2262,6 +2409,8 @@ module.exports = {
   minAreaRect,
   normDeg,
   simplifyPolyline,
+  pointInPolygon,
+  maxInscribedRect,
 };
 
 })(module);
@@ -2344,6 +2493,27 @@ class MaxRectsBin {
     this.free = this._prune(next);
   }
 
+  /** Mark a rectangle (bin coords) as occupied - e.g. a keep-out zone. */
+  block(rect) {
+    const x0 = Math.max(0, rect.x);
+    const y0 = Math.max(0, rect.y);
+    const x1 = Math.min(this.width, rect.x + rect.w);
+    const y1 = Math.min(this.height, rect.y + rect.h);
+    if (x1 - x0 <= EPS || y1 - y0 <= EPS) return;
+    this._place({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+  }
+
+  /** Offer an extra free rectangle (bin coords) - e.g. a part's big cut-out. */
+  addFree(rect) {
+    const x0 = Math.max(0, rect.x);
+    const y0 = Math.max(0, rect.y);
+    const x1 = Math.min(this.width, rect.x + rect.w);
+    const y1 = Math.min(this.height, rect.y + rect.h);
+    if (x1 - x0 <= EPS || y1 - y0 <= EPS) return;
+    this.free.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+    this.free = this._prune(this.free);
+  }
+
   /** Split free rect r against the placed node; push remainders into out. */
   _split(r, node, out) {
     if (node.x >= r.x + r.w - EPS || node.x + node.w <= r.x + EPS
@@ -2402,11 +2572,15 @@ class MaxRectsBin {
  * @param {number} opts.gap     minimum clearance between parts (mm)
  * @param {boolean} [opts.allowRotate=true] allow 90-degree rotation
  * @param {number} [opts.maxTotal=5000] safety cap on total placed instances
+ * @param {Array} [opts.blocked] keep-out rectangles in sheet coords [{x,y,w,h}]
  * @param {Array} opts.parts  [{id, w, h, area, priority, mode:'fixed'|'filler',
- *                             count, maxCount}]
+ *                             count, maxCount, noRotate?, holes?}]
  *   - w/h are the part's tight bounding box (pre-rotated), WITHOUT gap
  *   - count: requested count for fixed parts
  *   - maxCount: cap for filler parts (0 or missing = unlimited)
+ *   - noRotate: never turn this part 90 degrees
+ *   - holes: part-local rectangles inside big cut-outs, offered as free
+ *     space once the part is placed
  *
  * @returns {{placements:Array, unplaced:Array, utilization:number,
  *            placedCounts:Object}}
@@ -2417,7 +2591,7 @@ function nestParts(opts) {
   const {
     sheetW, sheetH, margin = 0, gap = 0,
     allowRotate = true, maxTotal = 20000, parts = [], order = 'priority',
-    heuristic = 'bssf', rng = null,
+    heuristic = 'bssf', rng = null, blocked = [],
   } = opts;
 
   if (!(sheetW > 0) || !(sheetH > 0)) {
@@ -2430,6 +2604,11 @@ function nestParts(opts) {
   }
 
   const bin = new MaxRectsBin(usableW, usableH, heuristic);
+  // Keep-out zones ("ne diraj": a scratched corner, a test-cut hole...) are
+  // given in sheet coordinates and carved out before anything is placed.
+  for (const z of blocked) {
+    if (z && z.w > 0 && z.h > 0) bin.block({ x: z.x - margin, y: z.y - margin, w: z.w, h: z.h });
+  }
   const placements = [];
   const unplaced = [];
   const placedCounts = {};
@@ -2477,7 +2656,8 @@ function nestParts(opts) {
   };
 
   const tryPlace = (part) => {
-    const node = bin.insert(part.w + gap, part.h + gap, allowRotate);
+    // Per-part rotation lock (grain direction on brushed/foiled sheet).
+    const node = bin.insert(part.w + gap, part.h + gap, allowRotate && !part.noRotate);
     if (!node) return false;
     placements.push({
       id: part.id,
@@ -2490,6 +2670,19 @@ function nestParts(opts) {
     placedCounts[part.id] = (placedCounts[part.id] || 0) + 1;
     placedArea += Number.isFinite(part.area) && part.area > 0 ? part.area : part.w * part.h;
     total += 1;
+    // A big cut-out inside the placed part becomes free space for the parts
+    // that follow (nesting inside holes). Hole rects are part-local (bbox
+    // corner = origin); a 90-degree unit turn maps (x,y) -> (h - y, x).
+    if (Array.isArray(part.holes)) {
+      for (const hh of part.holes) {
+        const r = node.rotated
+          ? { x: node.x + (part.h - hh.y - hh.h), y: node.y + hh.x, w: hh.h, h: hh.w }
+          : { x: node.x + hh.x, y: node.y + hh.y, w: hh.w, h: hh.h };
+        // Gap on all four sides: the packer's rects carry +gap on top/right
+        // only, so shift by gap and shrink by gap.
+        bin.addFree({ x: r.x + gap, y: r.y + gap, w: r.w - gap, h: r.h - gap });
+      }
+    }
     return true;
   };
 
@@ -2541,6 +2734,17 @@ function nestParts(opts) {
     placeFillers();
   }
 
+  // Leftover free space in sheet coordinates, sized as the biggest part
+  // (without gap) that would still fit there - for the "why didn't it fit"
+  // explainer. Largest first, capped to keep history entries small.
+  const r1 = (n) => Math.round(n * 10) / 10;
+  const freeRects = bin.free
+    .map((r) => ({ x: margin + r.x, y: margin + r.y, w: r.w - gap, h: r.h - gap }))
+    .filter((r) => r.w > 0.5 && r.h > 0.5)
+    .sort((a, b) => b.w * b.h - a.w * a.h)
+    .slice(0, 12)
+    .map((r) => ({ x: r1(r.x), y: r1(r.y), w: r1(r.w), h: r1(r.h) }));
+
   return {
     placements,
     unplaced,
@@ -2548,6 +2752,7 @@ function nestParts(opts) {
     placedCounts,
     capped,
     maxTotal,
+    freeRects,
   };
 }
 
@@ -2774,9 +2979,12 @@ __mods['parts'] = (function () { const module = { exports: {} };
  * and reusable in a browser build later.
  */
 
-const { parseDxf, writeDxf, transformEntity, sampleEntities } = __req('dxf');
+const {
+  parseDxf, writeDxf, transformEntity, sampleEntities, sampleEntity,
+} = __req('dxf');
 const {
   minAreaRect, bboxOfPoints, rotatePoint, rotatePoints, convexHull, polygonArea, simplifyPolyline,
+  pointInPolygon, maxInscribedRect,
 } = __req('geometry');
 const { nestParts } = __req('nest');
 const { bestDuoLayout, separateArea } = __req('pair');
@@ -2792,7 +3000,10 @@ const SAMPLE_QUALITY = 4; // matches writeDxf flattening quality
  * `outline` is the part sampled at its pre-rotated orientation, translated so
  * the bounding box corner sits at (0,0) - ready for thumbnails.
  */
-function analyzePart(content) {
+function analyzePart(content, opts) {
+  // lockRotation: keep the drawing exactly as drawn (grain direction on
+  // brushed/foiled sheet) - no tightest-box pre-rotation.
+  const lockRotation = !!(opts && opts.lockRotation);
   const { entities, warnings } = parseDxf(content);
   if (entities.length === 0) {
     throw new Error('U DXF datoteci nema podržane geometrije za rez.');
@@ -2805,7 +3016,7 @@ function analyzePart(content) {
   }
 
   const mar = minAreaRect(allPts);
-  const preRotDeg = mar.angleDeg;
+  const preRotDeg = lockRotation ? 0 : mar.angleDeg;
 
   const rotatedPolys = polys.map((poly) => rotatePoints(poly, preRotDeg));
   const rotatedAll = [];
@@ -2855,6 +3066,12 @@ function analyzePart(content) {
   }
   if (area === 0) area = bb.w * bb.h;
 
+  // Big cut-outs become free nesting space - but only loops that are cut,
+  // never engraving/marking geometry (a closed engraved logo is solid metal).
+  const cutPolys = sampleEntities(entities.filter((e) => !ENGRAVE_LAYER.test(String(e.layer || ''))), SAMPLE_QUALITY)
+    .map((poly) => rotatePoints(poly, preRotDeg).map(([x, y]) => [round3(x - bb.minX), round3(y - bb.minY)]));
+  const holes = findHoles(cutPolys);
+
   return {
     preRotDeg,
     w: bb.w,
@@ -2862,6 +3079,7 @@ function analyzePart(content) {
     area,
     outline,
     texts,
+    holes,
     warnings,
     entityCount: entities.length,
   };
@@ -2871,27 +3089,90 @@ function round3(n) {
   return Math.round(n * 1000) / 1000;
 }
 
+const ENGRAVE_LAYER = /grav|mark|engrav|text|napis|natpis/i;
+const HOLE_MIN = 30; // mm - a smaller window never hosts a part worth the trouble
+
+/**
+ * Big cut-outs inside the outer contour, each reduced to the largest
+ * axis-aligned rectangle that fits in it (part-local coords, bbox corner =
+ * origin). Only genuinely empty windows count: a loop outside the outer
+ * contour is another body, a loop with a further loop inside it (ring in a
+ * ring) is not empty.
+ */
+function findHoles(polys) {
+  const closed = polys.filter((p) => p.length >= 4
+    && Math.hypot(p[0][0] - p[p.length - 1][0], p[0][1] - p[p.length - 1][1]) < 1e-6);
+  if (closed.length < 2) return [];
+  let outer = null;
+  let outerArea = 0;
+  for (const p of closed) {
+    const a = Math.abs(polygonArea(p.slice(0, -1)));
+    if (a > outerArea) {
+      outerArea = a;
+      outer = p;
+    }
+  }
+  const holes = [];
+  for (const p of closed) {
+    if (p === outer) continue;
+    if (Math.abs(polygonArea(p.slice(0, -1))) < HOLE_MIN * HOLE_MIN) continue;
+    if (!pointInPolygon(p[0][0], p[0][1], outer)) continue;
+    const occupied = closed.some((q) => q !== p && q !== outer && pointInPolygon(q[0][0], q[0][1], p));
+    if (occupied) continue;
+    const r = maxInscribedRect(p, HOLE_MIN);
+    if (r) holes.push(r);
+  }
+  holes.sort((a, b) => b.w * b.h - a.w * a.h);
+  return holes.slice(0, 6);
+}
+
 
 /**
  * Resolve the effective part list for nesting from the library and the
  * active set. A null set means "all enabled parts with their own settings";
  * a set contributes only its member parts, with the set's per-part settings.
  */
-function applySet(parts, set) {
-  if (!set) return parts.filter((p) => p.enabled);
-  const items = (set && set.items) || {};
-  const out = [];
-  for (const p of parts) {
-    const it = items[p.id];
-    if (!it) continue;
-    out.push({
-      ...p,
-      enabled: true,
-      priority: Number.isFinite(it.priority) ? it.priority : p.priority,
-      mode: it.mode === 'fixed' ? 'fixed' : 'filler',
-      count: Number.isFinite(it.count) ? it.count : p.count,
-      maxCount: Number.isFinite(it.maxCount) ? it.maxCount : p.maxCount,
-    });
+function applySet(parts, set, fillSet) {
+  let out;
+  if (!set) {
+    out = parts.filter((p) => p.enabled);
+  } else {
+    const items = (set && set.items) || {};
+    out = [];
+    for (const p of parts) {
+      const it = items[p.id];
+      if (!it) continue;
+      out.push({
+        ...p,
+        enabled: true,
+        priority: Number.isFinite(it.priority) ? it.priority : p.priority,
+        mode: it.mode === 'fixed' ? 'fixed' : 'filler',
+        count: Number.isFinite(it.count) ? it.count : p.count,
+        maxCount: Number.isFinite(it.maxCount) ? it.maxCount : p.maxCount,
+      });
+    }
+  }
+  // "Dopuni iz drugog seta": the fill set's parts join as fillers only,
+  // ranked strictly after everything from the active selection, so they can
+  // only ever take space that would otherwise stay empty.
+  if (fillSet && fillSet !== set && fillSet.items) {
+    const have = new Set(out.map((p) => p.id));
+    const maxPrio = out.reduce((m, p) => Math.max(m, prioOf(p)), 0);
+    for (const p of parts) {
+      const it = fillSet.items[p.id];
+      if (!it || have.has(p.id)) continue;
+      // A pair whose partner is already in the selection is governed by it.
+      if (p.pairId && have.has(p.pairId)) continue;
+      out.push({
+        ...p,
+        enabled: true,
+        mode: 'filler',
+        count: 0,
+        priority: maxPrio + (Number.isFinite(it.priority) ? it.priority : prioOf(p)),
+        maxCount: Number.isFinite(it.maxCount) ? it.maxCount : p.maxCount,
+        fromFillSet: true,
+      });
+    }
   }
   return out;
 }
@@ -2929,6 +3210,15 @@ function buildUnits(parts, gap) {
     return duoCache[key];
   };
   const memberOf = (part, slot) => ({ part, rot180: !!slot.rot180, ox: slot.ox, oy: slot.oy });
+  // Cut-out rects of a member in unit-local coords (member turned 180 when
+  // the duo layout says so, then shifted by the member's offset).
+  const memberHoles = (m) => (Array.isArray(m.part.holes) ? m.part.holes : []).map((hh) => (m.rot180
+    ? { x: m.ox + (m.part.w - hh.x - hh.w), y: m.oy + (m.part.h - hh.y - hh.h), w: hh.w, h: hh.h }
+    : { x: m.ox + hh.x, y: m.oy + hh.y, w: hh.w, h: hh.h }));
+  const unitExtras = (members) => ({
+    noRotate: members.some((m) => !!m.part.noRotate),
+    holes: members.flatMap(memberHoles),
+  });
 
   for (const p of parts) {
     if (used.has(p.id)) continue;
@@ -2947,6 +3237,7 @@ function buildUnits(parts, gap) {
       let maxCount = 0;
       if (maxA > 0 && maxB > 0) maxCount = Math.min(maxA, maxB);
       else maxCount = Math.max(maxA, maxB);
+      const members = [memberOf(p, lay.a), memberOf(partner, lay.b)];
       units.push({
         uid: 'd:' + p.id + ':' + partner.id,
         w: lay.w,
@@ -2956,12 +3247,14 @@ function buildUnits(parts, gap) {
         mode: isFiller ? 'filler' : 'fixed',
         count: Math.min(Math.max(0, Math.floor(p.count || 0)), Math.max(0, Math.floor(partner.count || 0))),
         maxCount,
-        members: [memberOf(p, lay.a), memberOf(partner, lay.b)],
+        members,
+        ...unitExtras(members),
       });
       continue;
     }
 
     used.add(p.id);
+    const singleMembers = [{ part: p, rot180: false, ox: 0, oy: 0 }];
     const singleUnit = {
       uid: 's:' + p.id,
       w: p.w,
@@ -2971,7 +3264,8 @@ function buildUnits(parts, gap) {
       mode: p.mode,
       count: p.count,
       maxCount: p.maxCount,
-      members: [{ part: p, rot180: false, ox: 0, oy: 0 }],
+      members: singleMembers,
+      ...unitExtras(singleMembers),
     };
 
     const lay = duoFor(p, p);
@@ -2982,6 +3276,7 @@ function buildUnits(parts, gap) {
       continue;
     }
 
+    const duoMembers = [memberOf(p, lay.a), memberOf(p, lay.b)];
     const duoUnit = {
       uid: 'd:' + p.id + ':' + p.id,
       w: lay.w,
@@ -2991,7 +3286,8 @@ function buildUnits(parts, gap) {
       mode: p.mode,
       count: 0,
       maxCount: 0,
-      members: [memberOf(p, lay.a), memberOf(p, lay.b)],
+      members: duoMembers,
+      ...unitExtras(duoMembers),
     };
     if (p.mode !== 'filler') {
       const want = Math.max(0, Math.floor(p.count || 0));
@@ -3030,7 +3326,8 @@ function generateSheet(opts) {
   const {
     sheetW, sheetH, margin = 10, gap = 8,
     allowRotate = true, addFrame = false, parts = [], maxTotal,
-    order = 'priority', heuristic = 'bssf', rng = null,
+    order = 'priority', heuristic = 'bssf', rng = null, blocked = [],
+    tabsMax = 0, skeleton = null,
   } = opts;
 
   const { units, notes } = buildUnits(parts, gap);
@@ -3047,6 +3344,7 @@ function generateSheet(opts) {
     order,
     heuristic,
     rng,
+    blocked,
     parts: units.map((u) => ({
       id: u.uid,
       w: u.w,
@@ -3056,6 +3354,8 @@ function generateSheet(opts) {
       mode: u.mode,
       count: u.count,
       maxCount: u.maxCount,
+      noRotate: u.noRotate,
+      holes: u.holes,
     })),
   });
 
@@ -3063,13 +3363,22 @@ function generateSheet(opts) {
   // data (rotated bbox min and transformed entities are per placement).
   const cache = {};
   const layerColors = {};
+  const tabbedNames = [];
   const getPart = (id) => {
     if (!cache[id]) {
       const p = parts.find((q) => q.id === id);
       if (!p) throw new Error('Nepoznat part id: ' + id);
-      const { entities, layers } = parseDxf(p.content);
-      for (const [k, v] of Object.entries(layers || {})) {
+      const parsed = parseDxf(p.content);
+      for (const [k, v] of Object.entries(parsed.layers || {})) {
         if (!(k in layerColors)) layerColors[k] = v;
+      }
+      let { entities } = parsed;
+      if (wantsTabs(p, tabsMax)) {
+        const t = applyTabs(entities, TAB_WIDTH);
+        if (t.applied) {
+          entities = t.entities;
+          tabbedNames.push(p.name);
+        }
       }
       const samples = sampleEntities(entities, SAMPLE_QUALITY);
       cache[id] = { part: p, entities, samples, orientations: {} };
@@ -3145,6 +3454,21 @@ function generateSheet(opts) {
     }
   }
 
+  // "Rezanje kostura": chop lines through the empty corridors, on their own
+  // layer so CypCut can sequence them last.
+  let extraLines = [];
+  if (skeleton && skeleton.spacing > 0 && placements.length > 0) {
+    extraLines = skeletonLines(placements, sheetW, sheetH, margin, skeleton.spacing,
+      Math.max(3, gap / 2), blocked);
+    if (extraLines.length > 0) {
+      layerColors[SKELETON_LAYER] = SKELETON_COLOR;
+      for (const ln of extraLines) outEntities.push(lineEntity(ln));
+    }
+  }
+  if (tabbedNames.length > 0) {
+    notes.push('Mikro-mostići dodani: ' + tabbedNames.join(', ') + '.');
+  }
+
   if (addFrame) {
     outEntities.push({
       type: 'POLYLINE',
@@ -3192,6 +3516,333 @@ function generateSheet(opts) {
     notes,
     capped: nest.capped,
     maxTotal: nest.maxTotal,
+    freeRects: nest.freeRects,
+    extraLines,
+    tabsMax: tabsMax > 0 ? tabsMax : 0,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Skeleton chop lines
+// ---------------------------------------------------------------------------
+
+const SKELETON_LAYER = 'KOSTUR';
+const SKELETON_COLOR = 8; // ACI dark grey - clearly "not a part"
+
+function lineEntity(ln) {
+  return {
+    type: 'LINE', layer: SKELETON_LAYER, x1: ln.x1, y1: ln.y1, x2: ln.x2, y2: ln.y2,
+  };
+}
+
+/**
+ * Straight chop lines through the empty corridors of a nested sheet, every
+ * `spacing` mm in both directions, so the leftover skeleton falls apart into
+ * bin-sized strips. Segments keep `clear` mm from every placed part box (and
+ * from keep-out zones) and run only through free space.
+ */
+function skeletonLines(placements, sheetW, sheetH, margin, spacing, clear, blocked) {
+  const boxes = placements.map((p) => ({
+    x0: p.x - clear, y0: p.y - clear, x1: p.x + p.w + clear, y1: p.y + p.h + clear,
+  }));
+  for (const z of blocked || []) {
+    if (z && z.w > 0 && z.h > 0) boxes.push({ x0: z.x, y0: z.y, x1: z.x + z.w, y1: z.y + z.h });
+  }
+  const MIN_LEN = 30;
+  const r1 = (n) => Math.round(n * 10) / 10;
+  const lines = [];
+  const cutAlong = (vertical) => {
+    const span = vertical ? sheetW : sheetH; // axis we step along
+    const len = vertical ? sheetH : sheetW;  // axis the line runs along
+    const end = len - margin;
+    for (let pos = margin + spacing; pos < span - margin - spacing / 2; pos += spacing) {
+      const busy = [];
+      for (const b of boxes) {
+        const lo = vertical ? b.x0 : b.y0;
+        const hi = vertical ? b.x1 : b.y1;
+        if (pos > lo && pos < hi) busy.push(vertical ? [b.y0, b.y1] : [b.x0, b.x1]);
+      }
+      busy.sort((a, b) => a[0] - b[0]);
+      const emit = (a, b) => {
+        if (b - a < MIN_LEN) return;
+        lines.push(vertical
+          ? { x1: r1(pos), y1: r1(a), x2: r1(pos), y2: r1(b) }
+          : { x1: r1(a), y1: r1(pos), x2: r1(b), y2: r1(pos) });
+      };
+      let cur = margin;
+      for (const [a, b] of busy) {
+        if (a > cur) emit(cur, Math.min(a, end));
+        cur = Math.max(cur, b);
+        if (cur >= end) break;
+      }
+      if (cur < end) emit(cur, end);
+    }
+  };
+  cutAlong(true);
+  cutAlong(false);
+  return lines;
+}
+
+// ---------------------------------------------------------------------------
+// Micro-tabs ("mikro-mostici"): tiny uncut bridges on small parts so they
+// stay held in the skeleton instead of tipping up or falling through slats.
+// ---------------------------------------------------------------------------
+
+const TAB_WIDTH = 0.5; // mm of contour left uncut per tab
+const CHAIN_TOL = 0.3; // mm - endpoint matching tolerance when chaining loops
+
+function wantsTabs(part, tabsMax) {
+  return tabsMax > 0 && !part.noTabs && Math.max(part.w || 0, part.h || 0) <= tabsMax;
+}
+
+/** Endpoints of an open contour entity, or null when the entity is closed / not a contour. */
+function entityEnds(e) {
+  const DEGR = Math.PI / 180;
+  switch (e.type) {
+    case 'LINE':
+      return { a: [e.x1, e.y1], b: [e.x2, e.y2] };
+    case 'ARC':
+      return {
+        a: [e.cx + e.r * Math.cos(e.a1 * DEGR), e.cy + e.r * Math.sin(e.a1 * DEGR)],
+        b: [e.cx + e.r * Math.cos(e.a2 * DEGR), e.cy + e.r * Math.sin(e.a2 * DEGR)],
+      };
+    case 'POLYLINE': {
+      if (e.closed || !e.verts || e.verts.length < 2) return null;
+      const f = e.verts[0];
+      const l = e.verts[e.verts.length - 1];
+      return { a: [f.x, f.y], b: [l.x, l.y] };
+    }
+    case 'SPLINE':
+    case 'ELLIPSE': {
+      if (e.type === 'SPLINE' && e.closed) return null;
+      if (e.type === 'ELLIPSE' && Math.abs(((e.t2 - e.t1) % (Math.PI * 2)) || (Math.PI * 2)) >= Math.PI * 2 - 1e-9) return null;
+      const pts = sampleEntity(e, 1)[0] || [];
+      if (pts.length < 2) return null;
+      return { a: pts[0], b: pts[pts.length - 1] };
+    }
+    default:
+      return null;
+  }
+}
+
+function isClosedContour(e) {
+  if (e.type === 'CIRCLE') return true;
+  if (e.type === 'POLYLINE') return !!e.closed && e.verts && e.verts.length >= 3;
+  if (e.type === 'SPLINE') return !!e.closed;
+  if (e.type === 'ELLIPSE') return entityEnds(e) === null;
+  return false;
+}
+
+/**
+ * Chain contour entities into closed loops by matching endpoints. Returns
+ * [{members:[{e, reversed}]}] - only loops that actually close.
+ */
+function chainLoops(entities) {
+  const loops = [];
+  const open = [];
+  entities.forEach((e, idx) => {
+    if (isClosedContour(e)) loops.push({ members: [{ e, reversed: false, idx }] });
+    else {
+      const ends = entityEnds(e);
+      if (ends) open.push({ e, idx, a: ends.a, b: ends.b, used: false });
+    }
+  });
+  const near = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]) <= CHAIN_TOL;
+  for (const start of open) {
+    if (start.used) continue;
+    start.used = true;
+    const members = [{ e: start.e, reversed: false, idx: start.idx }];
+    let cur = start.b;
+    let closed = false;
+    for (let guard = 0; guard < open.length; guard++) {
+      if (near(cur, start.a) && members.length > 1) { closed = true; break; }
+      let next = null;
+      let reversed = false;
+      for (const o of open) {
+        if (o.used) continue;
+        if (near(o.a, cur)) { next = o; reversed = false; break; }
+        if (near(o.b, cur)) { next = o; reversed = true; break; }
+      }
+      if (!next) break;
+      next.used = true;
+      members.push({ e: next.e, reversed, idx: next.idx });
+      cur = reversed ? next.a : next.b;
+    }
+    if (!closed && near(cur, start.a) && members.length > 1) closed = true;
+    if (closed) loops.push({ members });
+  }
+  return loops;
+}
+
+/** Sampled points of a loop, in walking order (quality 8 = write quality). */
+function loopPoints(loop) {
+  const pts = [];
+  for (const m of loop.members) {
+    let p = sampleEntity(m.e, 8)[0] || [];
+    if (m.reversed) p = p.slice().reverse();
+    for (const q of p) {
+      const last = pts[pts.length - 1];
+      if (last && Math.hypot(last[0] - q[0], last[1] - q[1]) < 1e-6) continue;
+      pts.push(q);
+    }
+  }
+  if (pts.length > 1) {
+    const f = pts[0];
+    const l = pts[pts.length - 1];
+    if (Math.hypot(f[0] - l[0], f[1] - l[1]) < 1e-6) pts.pop();
+  }
+  return pts;
+}
+
+/**
+ * Replace the part's outer contour by 2-3 open polylines with `tabW` mm
+ * uncut between them. Inner holes, engraving and everything else stay as
+ * they are. Returns {entities, applied}.
+ */
+function applyTabs(entities, tabW) {
+  const loops = chainLoops(entities);
+  let outer = null;
+  let outerPts = null;
+  let outerArea = 0;
+  for (const L of loops) {
+    const pts = loopPoints(L);
+    if (pts.length < 3) continue;
+    const a = Math.abs(polygonArea(pts));
+    if (a > outerArea) {
+      outerArea = a;
+      outer = L;
+      outerPts = pts;
+    }
+  }
+  if (!outer) return { entities, applied: false };
+  const n = outerPts.length;
+  const seg = [];
+  let total = 0;
+  for (let i = 0; i < n; i++) {
+    const d = Math.hypot(outerPts[(i + 1) % n][0] - outerPts[i][0], outerPts[(i + 1) % n][1] - outerPts[i][1]);
+    seg.push(d);
+    total += d;
+  }
+  const tabs = total < 200 ? 2 : 3;
+  if (total < tabs * (tabW + 5)) return { entities, applied: false };
+
+  const pointAt = (s) => {
+    let acc = 0;
+    for (let i = 0; i < n; i++) {
+      if (s <= acc + seg[i] || i === n - 1) {
+        const t = seg[i] > 1e-12 ? Math.min(1, Math.max(0, (s - acc) / seg[i])) : 0;
+        const p = outerPts[i];
+        const q = outerPts[(i + 1) % n];
+        return [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t];
+      }
+      acc += seg[i];
+    }
+    return outerPts[0];
+  };
+  // Vertex positions along the perimeter (for collecting the ones inside a span).
+  const at = [];
+  let acc = 0;
+  for (let i = 0; i < n; i++) { at.push(acc); acc += seg[i]; }
+
+  const first = outer.members[0].e;
+  const pieces = [];
+  for (let k = 0; k < tabs; k++) {
+    const s0 = ((k + 0.5) * total) / tabs + tabW / 2;         // cut starts after this tab
+    const s1 = ((k + 1.5) * total) / tabs - tabW / 2;         // ...and ends before the next
+    const verts = [];
+    const push = (p) => {
+      const last = verts[verts.length - 1];
+      if (last && Math.hypot(last.x - p[0], last.y - p[1]) < 1e-6) return;
+      verts.push({ x: p[0], y: p[1], bulge: 0 });
+    };
+    push(pointAt(s0 % total));
+    // Vertices strictly inside (s0, s1), in walking order; s1 may wrap past
+    // the perimeter end, which the second pass (positions + total) covers.
+    for (let i = 0; i < n; i++) if (at[i] > s0 + 1e-9 && at[i] < s1 - 1e-9) push(outerPts[i]);
+    for (let i = 0; i < n; i++) if (at[i] + total > s0 + 1e-9 && at[i] + total < s1 - 1e-9) push(outerPts[i]);
+    push(pointAt(s1 % total));
+    if (verts.length >= 2) {
+      pieces.push({ type: 'POLYLINE', layer: first.layer || '0', color: first.color, closed: false, verts });
+    }
+  }
+  const outerIdx = new Set(outer.members.map((m) => m.idx));
+  const out = entities.filter((e, idx) => !outerIdx.has(idx)).concat(pieces);
+  return { entities: out, applied: pieces.length === tabs };
+}
+
+// ---------------------------------------------------------------------------
+// "Zasto ne stane?" and "Razmak uzivo"
+// ---------------------------------------------------------------------------
+
+/**
+ * Instant unit-level answer to "how many pieces fit at gap X?" for several
+ * candidate gaps (priority order, no materialization).
+ * @returns [{gap, placed, unplaced, utilization}]
+ */
+function gapSweep(opts, gaps) {
+  const out = [];
+  for (const gap of gaps) {
+    const { rects, membersOf } = unitRects(opts.parts || [], gap);
+    const nest = nestParts({
+      sheetW: opts.sheetW,
+      sheetH: opts.sheetH,
+      margin: opts.margin,
+      gap,
+      allowRotate: opts.allowRotate,
+      maxTotal: opts.maxTotal,
+      blocked: opts.blocked || [],
+      order: 'priority',
+      parts: rects,
+    });
+    let placed = 0;
+    for (const pl of nest.placements) placed += membersOf[pl.id] || 1;
+    out.push({ gap, placed, unplaced: missingMembers(nest, membersOf), utilization: nest.utilization });
+  }
+  return out;
+}
+
+/**
+ * Plain-language data for an unplaced part: how big the largest free hole
+ * is, how many mm the part misses by, and whether a slightly smaller gap
+ * would have fit more. Null when everything was placed.
+ */
+function whyNotHint(res, opts) {
+  if (!res || !Array.isArray(res.unplaced) || res.unplaced.length === 0) return null;
+  const parts = opts.parts || [];
+  let target = null;
+  for (const u of res.unplaced) {
+    const p = parts.find((q) => q.id === u.id);
+    if (p && (!target || p.w * p.h > target.w * target.h)) target = p;
+  }
+  if (!target) return null;
+  const free = (res.freeRects || [])[0] || null;
+  let missing = null;
+  if (free) {
+    const upright = Math.max(target.w - free.w, target.h - free.h, 0);
+    const turned = Math.max(target.h - free.w, target.w - free.h, 0);
+    missing = Math.round(Math.min(upright, turned) * 10) / 10;
+  }
+  const base = unplacedTotal(res);
+  const gap = Number.isFinite(opts.gap) ? opts.gap : 8;
+  const cands = [];
+  for (let g = Math.ceil(gap) - 1; g >= Math.max(0, gap - 5); g--) cands.push(g);
+  let betterGap = null;
+  if (cands.length > 0) {
+    for (const s of gapSweep(opts, cands)) {
+      if (s.unplaced < base) {
+        betterGap = { gap: s.gap, extra: base - s.unplaced };
+        break;
+      }
+    }
+  }
+  return {
+    partId: target.id,
+    partName: target.name,
+    partW: Math.round(target.w * 10) / 10,
+    partH: Math.round(target.h * 10) / 10,
+    free: free ? { w: free.w, h: free.h } : null,
+    missing,
+    betterGap,
   };
 }
 
@@ -3257,6 +3908,8 @@ function unitRects(parts, gap) {
     mode: u.mode,
     count: u.count,
     maxCount: u.maxCount,
+    noRotate: u.noRotate,
+    holes: u.holes,
   }));
   const membersOf = {};
   for (const u of units) membersOf[u.uid] = u.members.length;
@@ -3283,7 +3936,7 @@ function missingMembers(nest, membersOf) {
 function generateDense(opts, denseOpts) {
   const {
     sheetW, sheetH, margin = 10, gap = 8, allowRotate = true,
-    parts = [], maxTotal,
+    parts = [], maxTotal, blocked = [],
   } = opts;
   const { budgetMs = 5000, seed = 1, maxRestarts = 20000 } = denseOpts || {};
 
@@ -3304,6 +3957,7 @@ function generateDense(opts, denseOpts) {
       order: 'priority',
       heuristic,
       rng: restartSeed ? mulberry32(restartSeed) : null,
+      blocked,
       parts: rects,
     });
     const missing = missingMembers(nest, membersOf);
@@ -3357,7 +4011,7 @@ function generateKnap(opts, baselineUnplaced, maxBump) {
   if (!(baselineUnplaced > 0) || limit <= 0) return null;
   const {
     sheetW, sheetH, margin = 10, gap = 8, allowRotate = true,
-    parts = [], maxTotal,
+    parts = [], maxTotal, blocked = [],
   } = opts;
   const { rects, membersOf } = unitRects(parts, gap);
 
@@ -3373,6 +4027,7 @@ function generateKnap(opts, baselineUnplaced, maxBump) {
         allowRotate,
         maxTotal,
         order,
+        blocked,
         parts: rects,
       });
       const missing = missingMembers(nest, membersOf);
@@ -3389,7 +4044,7 @@ function generateKnap(opts, baselineUnplaced, maxBump) {
         return {
           ...res,
           variant: 'naknap',
-          variantLabel: 'Na knap +' + Math.max(bw, bh) + ' mm',
+          variantLabel: 'Na knap +' + String(Math.max(bw, bh) / 10).replace('.', ',') + ' cm',
           knapDims: { width: sheetW + bw, height: sheetH + bh },
           knapBump: { w: bw, h: bh },
         };
@@ -3431,6 +4086,10 @@ function generateAll(opts, extra) {
     seen.add(s);
     out.push({ ...res, variant: d.variant, variantLabel: d.variantLabel });
   }
+  // "Zasto ne stane?" - explain the shortfall of the priority sheet (the
+  // one the operator reads first); computed once, cheap.
+  const lead = out.find((r) => r.variant === 'prioriteti') || out[0];
+  if (lead && lead.unplaced.length > 0) lead.hint = whyNotHint(lead, opts);
 
   if (dense) {
     const dres = generateDense(opts, { budgetMs, seed, maxRestarts });
@@ -3465,7 +4124,10 @@ function generateAll(opts, extra) {
  * @returns {string} DXF text
  */
 function buildSheetDxf(opts) {
-  const { parts = [], placements = [], sheetW, sheetH, addFrame = false } = opts;
+  const {
+    parts = [], placements = [], sheetW, sheetH, addFrame = false,
+    extraLines = [], tabsMax = 0,
+  } = opts;
   const cache = {};
   const layerColors = {};
   const getEntities = (id) => {
@@ -3478,7 +4140,12 @@ function buildSheetDxf(opts) {
       for (const [k, v] of Object.entries(parsed.layers || {})) {
         if (!(k in layerColors)) layerColors[k] = v;
       }
-      cache[id] = parsed.entities;
+      let { entities } = parsed;
+      if (wantsTabs(p, tabsMax)) {
+        const t = applyTabs(entities, TAB_WIDTH);
+        if (t.applied) entities = t.entities;
+      }
+      cache[id] = entities;
     }
     return cache[id];
   };
@@ -3488,6 +4155,10 @@ function buildSheetDxf(opts) {
     for (const e of getEntities(pl.id)) {
       outEntities.push(transformEntity(e, { rotDeg: pl.rotDeg || 0, dx: pl.dx || 0, dy: pl.dy || 0 }));
     }
+  }
+  if (Array.isArray(extraLines) && extraLines.length > 0) {
+    layerColors[SKELETON_LAYER] = SKELETON_COLOR;
+    for (const ln of extraLines) outEntities.push(lineEntity(ln));
   }
   if (addFrame) {
     outEntities.push({
@@ -3510,7 +4181,8 @@ function buildSheetDxf(opts) {
 
 module.exports = {
   analyzePart, generateSheet, generateVariants, generateDense, generateKnap,
-  generateAll, buildSheetDxf, buildUnits, applySet,
+  generateAll, buildSheetDxf, buildUnits, applySet, gapSweep, whyNotHint,
+  skeletonLines, applyTabs, chainLoops, findHoles,
 };
 
 })(module);
@@ -3524,7 +4196,7 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
  * and SAMPLE_FILES/SAMPLE_CONFIG are provided by the bundle.
  */
 (function () {
-  const { analyzePart, applySet, buildSheetDxf, generateAll } = __req('parts');
+  const { analyzePart, applySet, buildSheetDxf, generateAll, gapSweep } = __req('parts');
   const PAIR_MIRRORED = ['priority', 'mode', 'count', 'maxCount'];
 
   // ---- storage (localStorage with in-memory fallback) ----
@@ -3552,8 +4224,36 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
 
   const DEFAULT_SETTINGS = {
     gap: 8, margin: 10, histTol: 20, allowRotate: true, autoOpen: false,
-    addFrame: false, scicutPath: '', outputDir: '',
+    addFrame: false, tabsMax: 30, skeleton: false, skeletonSpacing: 400,
+    scicutPath: '', outputDir: '',
   };
+  const NUMERIC_SETTINGS = { gap: 100, margin: 100, histTol: 500, tabsMax: 500, skeletonSpacing: 5000 };
+  const BOOL_SETTINGS = ['allowRotate', 'autoOpen', 'addFrame', 'skeleton'];
+  const TRASH_DAYS = 30;
+
+  function cmName(mm) {
+    return String(Math.round(mm / 10 * 10) / 10);
+  }
+
+  function reanalyzeEntry(entry) {
+    const info = analyzePart(entry.content, { lockRotation: !!entry.noRotate });
+    entry.preRotDeg = info.preRotDeg;
+    entry.w = Math.round(info.w * 1000) / 1000;
+    entry.h = Math.round(info.h * 1000) / 1000;
+    entry.area = Math.round(info.area * 1000) / 1000;
+    entry.outline = info.outline;
+    entry.texts = info.texts;
+    entry.holes = info.holes;
+    entry.warnings = info.warnings;
+    entry.entityCount = info.entityCount;
+  }
+
+  function loadTrash() {
+    const t = load('trash', []);
+    const cutoff = Date.now() - TRASH_DAYS * 24 * 3600 * 1000;
+    return (Array.isArray(t) ? t : []).filter((it) => it && it.entry
+      && new Date(it.deletedAt).getTime() >= cutoff);
+  }
 
   function newId() {
     return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -3574,12 +4274,14 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
       maxCount: 0,
       pairId: null,
       enabled: true,
+      noRotate: false,
       preRotDeg: info.preRotDeg,
       w: Math.round(info.w * 1000) / 1000,
       h: Math.round(info.h * 1000) / 1000,
       area: Math.round(info.area * 1000) / 1000,
       outline: info.outline,
       texts: info.texts,
+      holes: info.holes,
       warnings: info.warnings,
       entityCount: info.entityCount,
       createdAt: new Date().toISOString(),
@@ -3649,7 +4351,50 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
       sheetW: entry.width,
       sheetH: entry.height,
       addFrame: !!entry.addFrame,
+      extraLines: entry.extraLines || [],
+      tabsMax: entry.tabsMax || 0,
     });
+  }
+
+  function validDims(req) {
+    const width = Number(req && req.width);
+    const height = Number(req && req.height);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+      return { ok: false, message: 'Upišite ispravnu duljinu i širinu ploče.' };
+    }
+    if (width > 100000 || height > 100000) {
+      return { ok: false, message: 'Dimenzije ploče su prevelike.' };
+    }
+    return { ok: true, width, height };
+  }
+
+  function parseZone(req) {
+    if (!req || !req.zone || typeof req.zone !== 'object') return null;
+    const z = {
+      x: Number(req.zone.x), y: Number(req.zone.y), w: Number(req.zone.w), h: Number(req.zone.h),
+    };
+    if (![z.x, z.y, z.w, z.h].every(Number.isFinite) || z.w <= 0 || z.h <= 0) return null;
+    const r1 = (n) => Math.round(n * 10) / 10;
+    return { x: r1(z.x), y: r1(z.y), w: r1(z.w), h: r1(z.h) };
+  }
+
+  function resolveParts() {
+    const settings = getSettings();
+    const setsState = loadSetsState();
+    const set = setsState.sets.find((x) => x.id === setsState.activeSetId) || null;
+    const fillSet = set && set.fillSetId
+      ? setsState.sets.find((x) => x.id === set.fillSetId) || null
+      : null;
+    const effective = applySet(getLib(), set, fillSet);
+    if (effective.length === 0) {
+      return {
+        ok: false,
+        message: set
+          ? 'Aktivni set "' + set.name + '" je prazan. Dodajte partove u set u PRIPREMI.'
+          : 'Nema uključenih partova. Dodajte ih u PRIPREMI.',
+      };
+    }
+    return { ok: true, settings, parts: effective, set, fillSet };
   }
 
   // ---- file download (artifact capability, else plain browser save) ----
@@ -3720,7 +4465,13 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
         if (k === 'name') entry.name = sanitizeName(v);
         else if (k === 'mode') entry.mode = v === 'fixed' ? 'fixed' : 'filler';
         else if (k === 'enabled') entry.enabled = !!v;
-        else if (k === 'priority' || k === 'count' || k === 'maxCount') {
+        else if (k === 'noRotate') {
+          const next = !!v;
+          if (next !== !!entry.noRotate) {
+            entry.noRotate = next;
+            reanalyzeEntry(entry);
+          }
+        } else if (k === 'priority' || k === 'count' || k === 'maxCount') {
           const n = Math.floor(Number(v));
           if (k === 'priority') entry.priority = Math.min(99, Math.max(1, Number.isFinite(n) ? n : 5));
           if (k === 'count') entry.count = Math.min(999, Math.max(0, Number.isFinite(n) ? n : 1));
@@ -3771,7 +4522,41 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
       const sets = loadSetsState();
       for (const s of sets.sets) delete s.items[id];
       saveSetsState(sets);
+      if (entry) {
+        const t = loadTrash();
+        t.unshift({ entry: { ...entry, pairId: null }, deletedAt: new Date().toISOString() });
+        store('trash', t.slice(0, 20));
+      }
       return true;
+    },
+
+    listTrash: async () => loadTrash().map((it) => ({
+      id: it.entry.id,
+      name: it.entry.name,
+      w: it.entry.w,
+      h: it.entry.h,
+      outline: it.entry.outline,
+      deletedAt: it.deletedAt,
+    })),
+
+    restorePart: async (id) => {
+      const t = loadTrash();
+      const idx = t.findIndex((it) => it.entry.id === id);
+      if (idx === -1) throw new Error('Part više nije u Kanti.');
+      const lib = getLib();
+      if (!lib.some((p) => p.id === id)) lib.push(t[idx].entry);
+      store('library', lib);
+      t.splice(idx, 1);
+      store('trash', t);
+      return pub(lib.find((p) => p.id === id));
+    },
+
+    setSetFill: async (id, fillSetId) => {
+      const s = loadSetsState();
+      const set = s.sets.find((x) => x.id === id);
+      if (!set) throw new Error('Set ne postoji.');
+      set.fillSetId = (fillSetId && fillSetId !== id && s.sets.some((x) => x.id === fillSetId)) ? fillSetId : null;
+      return saveSetsState(s);
     },
 
     listSets: async () => loadSetsState(),
@@ -3833,10 +4618,10 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
       const s = getSettings();
       for (const k of Object.keys(DEFAULT_SETTINGS)) {
         if (patch && Object.prototype.hasOwnProperty.call(patch, k)) {
-          if (k === 'gap' || k === 'margin' || k === 'histTol') {
+          if (k in NUMERIC_SETTINGS) {
             const n = Number(patch[k]);
-            s[k] = Number.isFinite(n) ? Math.min(k === 'histTol' ? 500 : 100, Math.max(0, n)) : s[k];
-          } else if (k === 'allowRotate' || k === 'autoOpen' || k === 'addFrame') {
+            s[k] = Number.isFinite(n) ? Math.min(NUMERIC_SETTINGS[k], Math.max(0, n)) : s[k];
+          } else if (BOOL_SETTINGS.indexOf(k) !== -1) {
             s[k] = !!patch[k];
           } else {
             s[k] = String(patch[k] || '');
@@ -3847,27 +4632,39 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
       return s;
     },
 
+    gapSweep: async (req) => {
+      const d = validDims(req);
+      if (!d.ok) return d;
+      const rp = resolveParts();
+      if (!rp.ok) return rp;
+      const gaps = (Array.isArray(req.gaps) ? req.gaps : [])
+        .map(Number).filter((g) => Number.isFinite(g) && g >= 0 && g <= 100).slice(0, 12);
+      if (gaps.length === 0) return { ok: false, message: 'Nema razmaka za probu.' };
+      try {
+        const zone = parseZone(req);
+        const rows = gapSweep({
+          sheetW: d.width,
+          sheetH: d.height,
+          margin: rp.settings.margin,
+          allowRotate: rp.settings.allowRotate,
+          blocked: zone ? [zone] : [],
+          parts: rp.parts,
+        }, gaps);
+        return { ok: true, rows };
+      } catch (e) {
+        return { ok: false, message: (e && e.message) || String(e) };
+      }
+    },
+
     generate: async (req) => {
-      const width = Number(req && req.width);
-      const height = Number(req && req.height);
-      if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-        return { ok: false, message: 'Upi\u0161ite ispravnu duljinu i \u0161irinu plo\u010de (mm).' };
-      }
-      if (width > 100000 || height > 100000) {
-        return { ok: false, message: 'Dimenzije plo\u010de su prevelike.' };
-      }
-      const settings = getSettings();
-      const setsState = loadSetsState();
-      const set = setsState.sets.find((x) => x.id === setsState.activeSetId) || null;
-      const effective = applySet(getLib(), set);
-      if (effective.length === 0) {
-        return {
-          ok: false,
-          message: set
-            ? 'Aktivni set "' + set.name + '" je prazan. Dodajte partove u set u PRIPREMI.'
-            : 'Nema uklju\u010denih partova. Dodajte ih u PRIPREMI.',
-        };
-      }
+      const d = validDims(req);
+      if (!d.ok) return d;
+      const { width, height } = d;
+      const rp = resolveParts();
+      if (!rp.ok) return rp;
+      const { settings, set } = rp;
+      const effective = rp.parts;
+      const zone = parseZone(req);
       let variants;
       const t0 = performance.now();
       try {
@@ -3878,6 +4675,9 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
           gap: settings.gap,
           allowRotate: settings.allowRotate,
           addFrame: settings.addFrame,
+          blocked: zone ? [zone] : [],
+          tabsMax: settings.tabsMax > 0 ? settings.tabsMax : 0,
+          skeleton: settings.skeleton ? { spacing: settings.skeletonSpacing } : null,
           parts: effective,
         }, {
           dense: !!(req && req.dense),
@@ -3894,7 +4694,7 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
       if (variants.length === 0) {
         return {
           ok: false,
-          message: 'Ni\u0161ta ne stane na plo\u010du ' + height + ' x ' + width + ' mm. Provjerite dimenzije i rub.',
+          message: 'Ni\u0161ta ne stane na plo\u010du ' + cmName(height) + ' \u00d7 ' + cmName(width) + ' cm. Provjerite dimenzije i rub.',
         };
       }
       const now = new Date();
@@ -3909,7 +4709,7 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
         const id = newId();
         const eWidth = result.knapDims ? result.knapDims.width : width;
         const eHeight = result.knapDims ? result.knapDims.height : height;
-        const fileName = 'Ploca_' + Math.round(eHeight) + 'x' + Math.round(eWidth)
+        const fileName = 'Ploca_' + cmName(eHeight) + 'x' + cmName(eWidth)
           + '_' + stamp + '_v' + (vi + 1) + '_' + id.slice(-4) + '.dxf';
         entries.push({
           id,
@@ -3940,6 +4740,11 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
           utilization: Math.round(result.utilization * 1000) / 1000,
           totalPlaced: result.totalPlaced,
           capped: result.capped,
+          zone: zone || null,
+          extraLines: result.extraLines || [],
+          tabsMax: result.tabsMax || 0,
+          freeRects: (result.freeRects || []).slice(0, 8),
+          hint: result.hint || null,
         });
         sheets.push({
           sheetId: id,
@@ -3956,6 +4761,7 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
           totalPlaced: result.totalPlaced,
           capped: result.capped,
           maxTotal: result.maxTotal,
+          hint: result.hint || null,
         });
       }
 
@@ -3988,7 +4794,7 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
     },
     pickExe: async () => null,
     pickDir: async () => null,
-    appInfo: async () => ({ version: '1.4.1 · web proba', dataDir: '' }),
+    appInfo: async () => ({ version: '1.5.0 · web proba', dataDir: '' }),
   };
 })();
 
@@ -4007,6 +4813,7 @@ const state = {
   activeSetId: null,
   lastBatch: null,
   selectedSheetId: null,
+  zone: null, // keep-out rectangle {x,y,w,h,sheetW,sheetH} in mm, or null
 };
 
 const bridge = window.dino;
@@ -4025,24 +4832,28 @@ const VARIANT_BADGE = {
 // Helpers
 // ---------------------------------------------------------------------------
 
+// The shop thinks in centimetres: every length the operator types or reads
+// is cm (decimal point or comma), while the core and the DXF stay in mm.
 function parseNum(text) {
   if (typeof text !== 'string') return NaN;
-  let t = text.trim();
+  const t = text.trim().replace(',', '.');
   if (t === '') return NaN;
-  // "2.000" is a Croatian thousands notation, not 2 millimeters.
-  if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
-  t = t.replace(',', '.');
   return Number(t);
 }
 
-function fmtMm(n) {
-  // No thousands grouping - the shown value must round-trip through parseNum.
-  return String(Math.round(n * 10) / 10).replace('.', ',');
+/** cm typed by the operator -> mm for the core (rounded to 0.1 mm). */
+function cmToMm(cm) {
+  return Math.round(cm * 100) / 10;
+}
+
+/** mm from the core -> cm for display, at most 2 decimals, Croatian comma. */
+function fmtCm(mm) {
+  return String(Math.round(mm * 10) / 100).replace('.', ',');
 }
 
 /** Sheets display as DULJINA x ŠIRINA (the machine's long side first = Y). */
 function dimsText(entry) {
-  return fmtMm(entry.height) + ' × ' + fmtMm(entry.width) + ' mm';
+  return fmtCm(entry.height) + ' × ' + fmtCm(entry.width) + ' cm';
 }
 
 function fmtDate(iso) {
@@ -4154,18 +4965,61 @@ function placementPolys(pl) {
   return polys;
 }
 
-function drawSheetEntry(canvas, entry) {
-  const ctx = canvas.getContext('2d');
+/** Sheet-mm -> canvas-px mapping used by every sheet drawing and by zone picking. */
+function previewTransform(canvas, entry) {
   const W = canvas.width;
   const H = canvas.height;
-  ctx.clearRect(0, 0, W, H);
-
   const pad = Math.max(8, Math.round(W * 0.02));
   const scale = Math.min((W - 2 * pad) / entry.width, (H - 2 * pad) / entry.height);
   const ox = (W - entry.width * scale) / 2;
   const oy = (H - entry.height * scale) / 2;
-  const tx = (x) => ox + x * scale;
-  const ty = (y) => H - oy - y * scale; // flip Y (DXF Y is up)
+  return {
+    W, H, scale, ox, oy,
+    tx: (x) => ox + x * scale,
+    ty: (y) => H - oy - y * scale, // flip Y (DXF Y is up)
+    fromCanvas: (px, py) => [(px - ox) / scale, (H - oy - py) / scale],
+  };
+}
+
+function hatchRect(ctx, t, r, fill, stroke) {
+  const x = t.tx(r.x);
+  const y = t.ty(r.y + r.h);
+  const w = r.w * t.scale;
+  const h = r.h * t.scale;
+  ctx.save();
+  ctx.fillStyle = fill;
+  ctx.fillRect(x, y, w, h);
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 1;
+  const step = Math.max(6, t.W / 120);
+  for (let d = -h; d < w; d += step) {
+    ctx.beginPath();
+    ctx.moveTo(x + d, y);
+    ctx.lineTo(x + d + h, y + h);
+    ctx.stroke();
+  }
+  ctx.restore();
+  ctx.save();
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = Math.max(1, t.W / 600);
+  ctx.setLineDash([5, 4]);
+  ctx.strokeRect(x, y, w, h);
+  ctx.restore();
+}
+
+/**
+ * Draw a sheet entry. opts: {free: hatch leftover free space, liveZone: a
+ * rectangle being dragged right now (sheet coords)}.
+ */
+function drawSheetEntry(canvas, entry, opts) {
+  const o = opts || {};
+  const ctx = canvas.getContext('2d');
+  const t = previewTransform(canvas, entry);
+  const { W, H, scale, tx, ty } = t;
+  ctx.clearRect(0, 0, W, H);
 
   ctx.fillStyle = '#242c37';
   ctx.strokeStyle = '#5b6b7f';
@@ -4173,12 +5027,39 @@ function drawSheetEntry(canvas, entry) {
   ctx.fillRect(tx(0), ty(entry.height), entry.width * scale, entry.height * scale);
   ctx.strokeRect(tx(0), ty(entry.height), entry.width * scale, entry.height * scale);
 
+  // Keep-out zone ("ne diraj") - red hatch, stored with the entry.
+  if (entry.zone && entry.zone.w > 0) hatchRect(ctx, t, entry.zone, 'rgba(255, 93, 93, 0.18)', '#ff5d5d');
+  if (o.liveZone && o.liveZone.w > 0) hatchRect(ctx, t, o.liveZone, 'rgba(255, 93, 93, 0.25)', '#ff8a8a');
+
   if (!Array.isArray(entry.placements) || entry.placements.length === 0) {
     ctx.fillStyle = '#8b98a8';
     ctx.font = Math.round(W / 30) + 'px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('stara ploča — samo datoteka', W / 2, H / 2);
     return;
+  }
+
+  // Leftover free space (for "zasto ne stane") - blue hatch, big preview only.
+  if (o.free && Array.isArray(entry.freeRects)) {
+    for (const r of entry.freeRects.slice(0, 4)) {
+      if (r.w * scale < 6 || r.h * scale < 6) continue;
+      hatchRect(ctx, t, r, 'rgba(88, 166, 255, 0.10)', 'rgba(88, 166, 255, 0.7)');
+    }
+  }
+
+  // Skeleton chop lines - thin grey dashes.
+  if (Array.isArray(entry.extraLines) && entry.extraLines.length) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(160, 170, 185, 0.7)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([6, 4]);
+    for (const ln of entry.extraLines) {
+      ctx.beginPath();
+      ctx.moveTo(tx(ln.x1), ty(ln.y1));
+      ctx.lineTo(tx(ln.x2), ty(ln.y2));
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   for (const pl of entry.placements) {
@@ -4243,20 +5124,33 @@ function renderSetBar() {
   for (const s of state.sets) bar.appendChild(mk(s.name, s.id));
 }
 
+/** Typed sheet size in mm ({len: Y/duljina, wid: X/sirina}) or null. */
+function typedDims() {
+  const len = parseNum($('inLen').value);   // DULJINA (cm) -> Y (sheetH)
+  const wid = parseNum($('inWid').value);   // ŠIRINA (cm)  -> X (sheetW)
+  if (!Number.isFinite(len) || !Number.isFinite(wid) || len <= 0 || wid <= 0) return null;
+  return { len: cmToMm(len), wid: cmToMm(wid) };
+}
+
 async function generate(dense) {
   if ($('btnGenerate').disabled) return; // already running (Enter bypasses the button)
-  const len = parseNum($('inLen').value);   // DULJINA -> Y (sheetH)
-  const wid = parseNum($('inWid').value);   // ŠIRINA  -> X (sheetW)
+  const dims = typedDims();
   const status = $('genStatus');
   status.hidden = false;
   status.className = 'status';
 
-  if (!Number.isFinite(len) || !Number.isFinite(wid) || len <= 0 || wid <= 0) {
+  if (!dims) {
     status.classList.add('err');
-    status.textContent = 'Upišite duljinu i širinu ploče u milimetrima.';
+    status.textContent = 'Upišite duljinu i širinu ploče u centimetrima (npr. 300 i 150).';
     return; // keep the selected sheet's warnings (#genWarn) untouched
   }
+  const { len, wid } = dims;
   $('genWarn').hidden = true;
+  // A keep-out zone belongs to one sheet size.
+  if (state.zone && (state.zone.sheetW !== wid || state.zone.sheetH !== len)) {
+    state.zone = null;
+    updateZoneUi();
+  }
 
   const btn = $('btnGenerate');
   const btnD = $('btnDense');
@@ -4269,7 +5163,12 @@ async function generate(dense) {
     // The web bridge nests synchronously on the UI thread (seconds for the
     // dense search) - yield once so the status and disabled buttons paint.
     if (dense || IS_WEB) await new Promise((r) => setTimeout(r, 30));
-    const res = await bridge.generate({ width: wid, height: len, dense: !!dense });
+    const res = await bridge.generate({
+      width: wid,
+      height: len,
+      dense: !!dense,
+      zone: state.zone ? { x: state.zone.x, y: state.zone.y, w: state.zone.w, h: state.zone.h } : null,
+    });
     if (!res.ok) {
       status.classList.add('err');
       status.textContent = res.message || 'Generiranje nije uspjelo.';
@@ -4324,9 +5223,9 @@ function dimsMatch(entry, w, h, tol) {
 }
 
 function currentMatches() {
-  const len = parseNum($('inLen').value);
-  const wid = parseNum($('inWid').value);
-  if (!Number.isFinite(len) || !Number.isFinite(wid) || len <= 0 || wid <= 0) return null;
+  const dims = typedDims();
+  if (!dims) return null;
+  const { len, wid } = dims;
   const tol = (state.settings && Number.isFinite(state.settings.histTol)) ? state.settings.histTol : 20;
   // Sheets from the just-generated batch always match with at least the
   // maximum na-knap bump as tolerance - otherwise a strict histTol (< 10 mm)
@@ -4396,8 +5295,8 @@ function renderOffers() {
     return;
   }
   box.hidden = false;
-  $('offersTitle').textContent = 'Ploče ~ ' + fmtMm(cur.len) + ' × ' + fmtMm(cur.wid)
-    + ' mm (±' + fmtMm(cur.tol) + ' mm) — ' + cur.matches.length + ' kom';
+  $('offersTitle').textContent = 'Ploče ~ ' + fmtCm(cur.len) + ' × ' + fmtCm(cur.wid)
+    + ' cm (±' + fmtCm(cur.tol) + ' cm) — ' + cur.matches.length + ' kom';
   const wrap = $('offerCards');
   wrap.innerHTML = '';
   for (const m of cur.matches.slice(0, 12)) wrap.appendChild(sheetCard(m));
@@ -4417,7 +5316,10 @@ function selectSheet(id) {
     c.classList.toggle('selected', c.dataset.id === id);
   }
   $('result').hidden = false;
-  drawSheetEntry($('preview'), entry);
+  drawSheetEntry($('preview'), entry, { free: true });
+  renderWhy(entry);
+  updateZoneUi();
+  if (!$('gapStrip').hidden) refreshGapStrip();
 
   const stats = $('stats');
   stats.innerHTML = '';
@@ -4488,6 +5390,190 @@ $('btnSave').addEventListener('click', () => {
 });
 
 // ---------------------------------------------------------------------------
+// "Zasto ne stane?" explainer
+// ---------------------------------------------------------------------------
+
+function renderWhy(entry) {
+  const box = $('whyBox');
+  const h = entry && entry.hint;
+  if (!h) {
+    box.hidden = true;
+    return;
+  }
+  const parts = [];
+  parts.push('<b>ZAŠTO NE STANE?</b> ' + escapeHtml(h.partName) + ' (' + fmtCm(h.partW) + ' × ' + fmtCm(h.partH) + ' cm)');
+  if (h.free) {
+    parts.push('— najveća slobodna rupa na ploči je <b>' + fmtCm(h.free.w) + ' × ' + fmtCm(h.free.h) + ' cm</b>'
+      + (h.missing > 0 ? ', komadu fali <b>' + fmtCm(h.missing) + ' cm</b>.' : '.'));
+  } else {
+    parts.push('— na ploči nema slobodnog mjesta.');
+  }
+  if (h.betterGap) {
+    parts.push('S razmakom <b>' + fmtCm(h.betterGap.gap) + ' cm</b> umjesto '
+      + fmtCm(state.settings ? state.settings.gap : 8) + ' cm stalo bi još <b>' + h.betterGap.extra + ' kom</b>'
+      + ' — probaj RAZMAK UŽIVO.');
+  }
+  box.innerHTML = parts.join(' ');
+  box.hidden = false;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+// ---------------------------------------------------------------------------
+// Keep-out zone ("ZONA"): drag a rectangle on the big preview, the sheet is
+// regenerated around it.
+// ---------------------------------------------------------------------------
+
+let zoning = false;
+let zoneDrag = null;
+
+function updateZoneUi() {
+  $('btnZone').textContent = zoning ? '✕ ODUSTANI' : (state.zone ? '✏ NOVA ZONA' : '✏ ZONA');
+  $('btnZoneClear').hidden = !state.zone;
+  $('zoneHint').hidden = !zoning;
+  $('preview').classList.toggle('zoning', zoning);
+}
+
+function selectedEntry() {
+  return state.history.find((s) => s.id === state.selectedSheetId) || null;
+}
+
+function canvasPoint(canvas, e) {
+  const r = canvas.getBoundingClientRect();
+  return [((e.clientX - r.left) * canvas.width) / r.width, ((e.clientY - r.top) * canvas.height) / r.height];
+}
+
+function dragRect(entry) {
+  if (!zoneDrag) return null;
+  const x0 = Math.max(0, Math.min(zoneDrag.x0, zoneDrag.x1));
+  const y0 = Math.max(0, Math.min(zoneDrag.y0, zoneDrag.y1));
+  const x1 = Math.min(entry.width, Math.max(zoneDrag.x0, zoneDrag.x1));
+  const y1 = Math.min(entry.height, Math.max(zoneDrag.y0, zoneDrag.y1));
+  const r1 = (n) => Math.round(n * 10) / 10;
+  return { x: r1(x0), y: r1(y0), w: r1(x1 - x0), h: r1(y1 - y0) };
+}
+
+$('btnZone').addEventListener('click', () => {
+  zoning = !zoning;
+  zoneDrag = null;
+  updateZoneUi();
+});
+$('btnZoneClear').addEventListener('click', () => {
+  state.zone = null;
+  zoning = false;
+  updateZoneUi();
+  generate(false);
+});
+$('preview').addEventListener('mousedown', (e) => {
+  const entry = selectedEntry();
+  if (!zoning || !entry) return;
+  e.preventDefault();
+  const t = previewTransform($('preview'), entry);
+  const [x, y] = t.fromCanvas(...canvasPoint($('preview'), e));
+  zoneDrag = { x0: x, y0: y, x1: x, y1: y };
+});
+$('preview').addEventListener('mousemove', (e) => {
+  const entry = selectedEntry();
+  if (!zoneDrag || !entry) return;
+  const t = previewTransform($('preview'), entry);
+  const [x, y] = t.fromCanvas(...canvasPoint($('preview'), e));
+  zoneDrag.x1 = x;
+  zoneDrag.y1 = y;
+  drawSheetEntry($('preview'), entry, { free: true, liveZone: dragRect(entry) });
+});
+window.addEventListener('mouseup', () => {
+  const entry = selectedEntry();
+  if (!zoneDrag || !entry) return;
+  const r = dragRect(entry);
+  zoneDrag = null;
+  zoning = false;
+  if (r && r.w >= 5 && r.h >= 5) {
+    state.zone = { ...r, sheetW: entry.width, sheetH: entry.height };
+    // The zone is in the coordinates of the sheet on screen - make the
+    // inputs match it so the regenerate hits the same size.
+    $('inLen').value = fmtCm(entry.height);
+    $('inWid').value = fmtCm(entry.width);
+    updateZoneUi();
+    generate(false);
+  } else {
+    updateZoneUi();
+    drawSheetEntry($('preview'), entry, { free: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// "Razmak uzivo": live piece counts for other gaps
+// ---------------------------------------------------------------------------
+
+let gapTimer = null;
+
+function gapContext() {
+  const entry = selectedEntry();
+  const dims = typedDims() || (entry ? { len: entry.height, wid: entry.width } : null);
+  if (!dims) return null;
+  return {
+    width: dims.wid,
+    height: dims.len,
+    zone: state.zone ? { x: state.zone.x, y: state.zone.y, w: state.zone.w, h: state.zone.h } : null,
+  };
+}
+
+async function refreshGapStrip() {
+  const ctx = gapContext();
+  const cur = Number($('gapRange').value);
+  $('gapValue').textContent = fmtCm(cur) + ' cm → …';
+  if (!ctx) return;
+  const gaps = [];
+  for (let g = Math.max(0, cur - 3); g <= cur + 3; g++) if (gaps.indexOf(g) === -1) gaps.push(g);
+  try {
+    const res = await bridge.gapSweep({ ...ctx, gaps });
+    if (!res.ok) {
+      $('gapValue').textContent = res.message || '';
+      return;
+    }
+    const rows = $('gapRows');
+    rows.innerHTML = '';
+    const best = Math.max(...res.rows.map((r) => r.placed));
+    for (const r of res.rows) {
+      const chip = el('button', 'chip' + (r.placed === best ? ' best' : '') + (r.gap === cur ? ' active' : ''),
+        fmtCm(r.gap) + ' cm → ' + r.placed + ' kom');
+      chip.addEventListener('click', () => {
+        $('gapRange').value = String(r.gap);
+        refreshGapStrip();
+      });
+      rows.appendChild(chip);
+      if (r.gap === cur) {
+        $('gapValue').textContent = fmtCm(cur) + ' cm → ' + r.placed + ' kom'
+          + (r.unplaced > 0 ? ' (' + r.unplaced + ' ne stane)' : '');
+      }
+    }
+  } catch (e) {
+    $('gapValue').textContent = 'Greška: ' + (e && e.message ? e.message : e);
+  }
+}
+
+$('btnGap').addEventListener('click', () => {
+  const strip = $('gapStrip');
+  strip.hidden = !strip.hidden;
+  if (!strip.hidden) {
+    $('gapRange').value = String(Math.round(state.settings ? state.settings.gap : 8));
+    refreshGapStrip();
+  }
+});
+$('gapRange').addEventListener('input', () => {
+  clearTimeout(gapTimer);
+  gapTimer = setTimeout(refreshGapStrip, 80);
+});
+$('btnGapApply').addEventListener('click', async () => {
+  const g = Number($('gapRange').value);
+  await saveSettings({ gap: g });
+  $('gapStrip').hidden = true;
+  generate(false);
+});
+
+// ---------------------------------------------------------------------------
 // Sets management (prep view)
 // ---------------------------------------------------------------------------
 
@@ -4525,6 +5611,31 @@ function renderSetsList() {
     row.appendChild(nameIn);
 
     row.appendChild(el('div', 'set-count', Object.keys(s.items || {}).length + ' partova'));
+
+    // "Dopuni iz drugog seta": leftover space goes to that set's parts.
+    const fill = el('label', 'set-fill');
+    fill.appendChild(el('span', '', 'dopuni iz:'));
+    const sel = document.createElement('select');
+    sel.title = 'Kad ovaj set ostavi prazno mjesto, popuni ga partovima odabranog seta';
+    const none = document.createElement('option');
+    none.value = '';
+    none.textContent = '— ništa —';
+    sel.appendChild(none);
+    for (const o of state.sets) {
+      if (o.id === s.id) continue;
+      const opt = document.createElement('option');
+      opt.value = o.id;
+      opt.textContent = o.name;
+      if (s.fillSetId === o.id) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    sel.addEventListener('change', async () => {
+      const res = await bridge.setSetFill(s.id, sel.value || null);
+      state.sets = res.sets;
+      renderSetsList();
+    });
+    fill.appendChild(sel);
+    row.appendChild(fill);
 
     const del = el('button', 'btn small danger', '✕');
     del.title = 'Obriši set';
@@ -4600,7 +5711,12 @@ function showPartModal(part) {
   $('modalTitle').textContent = part.name;
   drawOutline($('modalCanvas'), part, 20);
   const info = [];
-  info.push('Dimenzije: ' + fmtMm(part.w) + ' × ' + fmtMm(part.h) + ' mm · površina ' + (part.area / 100).toFixed(1) + ' cm²');
+  info.push('Dimenzije: ' + fmtCm(part.w) + ' × ' + fmtCm(part.h) + ' cm · površina ' + (part.area / 100).toFixed(1) + ' cm²');
+  if (part.noRotate) info.push('Ne okreći: ostaje kako je nacrtan (samo 0° ili 180°).');
+  if (Array.isArray(part.holes) && part.holes.length) {
+    info.push('Velike rupe (u njih program slaže manje komade): '
+      + part.holes.map((h) => fmtCm(h.w) + '×' + fmtCm(h.h) + ' cm').join(', '));
+  }
   if (part.entityCount) info.push('Učitano entiteta: ' + part.entityCount);
   if (part.pairId && state.partsById[part.pairId]) {
     info.push('U paru s: ' + state.partsById[part.pairId].name + ' (uvijek idu zajedno na ploču)');
@@ -4636,7 +5752,7 @@ function openPairPicker(part) {
     cv.height = 48;
     drawOutline(cv, p, 4);
     b.appendChild(cv);
-    b.appendChild(el('span', '', p.name + ' (' + fmtMm(p.w) + '×' + fmtMm(p.h) + ')'
+    b.appendChild(el('span', '', p.name + ' (' + fmtCm(p.w) + '×' + fmtCm(p.h) + ' cm)'
       + (p.pairId ? ' — već u paru' : '')));
     b.addEventListener('click', async () => {
       $('pairModal').hidden = true;
@@ -4703,7 +5819,10 @@ function partRow(part) {
   nameInput.addEventListener('change', () => bridge.updatePart(part.id, { name: nameInput.value }).then(refreshParts));
   main.appendChild(nameInput);
   const dims = el('div', 'part-dims');
-  dims.appendChild(document.createTextNode(fmtMm(part.w) + ' × ' + fmtMm(part.h) + ' mm'));
+  dims.appendChild(document.createTextNode(fmtCm(part.w) + ' × ' + fmtCm(part.h) + ' cm'));
+  if (Array.isArray(part.holes) && part.holes.length) {
+    dims.appendChild(document.createTextNode(' · ◻ rupa'));
+  }
   if (part.warnings && part.warnings.length) {
     dims.appendChild(document.createTextNode(' · '));
     const wlink = el('span', 'link', '⚠ ' + part.warnings.length);
@@ -4797,18 +5916,76 @@ function partRow(part) {
   en.appendChild(el('span', '', 'Uklj.'));
   row.appendChild(en);
 
-  // Delete (with confirmation - a slip here would lose the drawing)
+  // Rotation lock (global part property - grain direction is a fact of the drawing)
+  const nr = el('label', 'part-field check');
+  nr.title = 'Ne okreći: za brušeni inox/foliju — smjer ostaje kako je nacrtano (dozvoljeno samo 0° i 180°)';
+  const nrIn = document.createElement('input');
+  nrIn.type = 'checkbox';
+  nrIn.checked = !!part.noRotate;
+  nrIn.addEventListener('change', async () => {
+    await bridge.updatePart(part.id, { noRotate: nrIn.checked });
+    await refreshParts();
+    showToast(nrIn.checked ? 'Part se više ne okreće (samo 0°/180°).' : 'Part se opet smije okretati.');
+  });
+  nr.appendChild(nrIn);
+  nr.appendChild(el('span', '', 'Ne okr.'));
+  row.appendChild(nr);
+
+  // Delete - goes to the Kanta for 30 days, so a slip is recoverable.
   const del = el('button', 'btn small danger', '✕');
-  del.title = 'Obriši part';
+  del.title = 'Obriši part (30 dana ostaje u Kanti)';
   del.addEventListener('click', async () => {
-    if (!window.confirm('Obrisati part "' + part.name + '" iz programa?\nOvo briše i njegov DXF iz biblioteke.')) return;
+    if (!window.confirm('Obrisati part "' + part.name + '"?\nOstaje 30 dana u Kanti odakle ga možeš vratiti.')) return;
     await bridge.removePart(part.id);
     await refreshParts();
     await refreshSets();
+    await renderTrash();
   });
   row.appendChild(del);
 
   return row;
+}
+
+// ---------------------------------------------------------------------------
+// Kanta (deleted parts, 30 days)
+// ---------------------------------------------------------------------------
+
+async function renderTrash() {
+  const list = $('trashList');
+  list.innerHTML = '';
+  let items = [];
+  try {
+    items = typeof bridge.listTrash === 'function' ? await bridge.listTrash() : [];
+  } catch (e) {
+    items = [];
+  }
+  if (!items || items.length === 0) {
+    list.appendChild(el('div', 'empty', 'Kanta je prazna.'));
+    return;
+  }
+  for (const it of items) {
+    const row = el('div', 'trash-row');
+    const cv = document.createElement('canvas');
+    cv.width = 64;
+    cv.height = 48;
+    drawOutline(cv, { id: it.id, outline: it.outline, w: it.w, h: it.h }, 4);
+    row.appendChild(cv);
+    row.appendChild(el('div', 'tname', it.name + ' · ' + fmtCm(it.w) + ' × ' + fmtCm(it.h) + ' cm'));
+    row.appendChild(el('div', 'tdate', 'obrisano ' + fmtDate(it.deletedAt)));
+    const back = el('button', 'btn small', '↩ VRATI');
+    back.addEventListener('click', async () => {
+      try {
+        await bridge.restorePart(it.id);
+        await refreshParts();
+        await renderTrash();
+        showToast('Vraćeno iz Kante: ' + it.name);
+      } catch (e) {
+        showToast('Vraćanje nije uspjelo: ' + (e && e.message ? e.message : e));
+      }
+    });
+    row.appendChild(back);
+    list.appendChild(row);
+  }
 }
 
 async function refreshParts() {
@@ -4876,12 +6053,16 @@ drop.addEventListener('drop', async (e) => {
 
 function renderSettings() {
   const s = state.settings;
-  $('setGap').value = String(s.gap).replace('.', ',');
-  $('setMargin').value = String(s.margin).replace('.', ',');
-  $('setHistTol').value = String(s.histTol).replace('.', ',');
+  // Lengths are stored in mm, shown and typed in cm.
+  $('setGap').value = fmtCm(s.gap);
+  $('setMargin').value = fmtCm(s.margin);
+  $('setHistTol').value = fmtCm(s.histTol);
+  $('setTabsMax').value = fmtCm(s.tabsMax || 0);
+  $('setSkeletonSpacing').value = fmtCm(s.skeletonSpacing || 400);
   $('setRotate').checked = !!s.allowRotate;
   $('setAutoOpen').checked = !!s.autoOpen;
   $('setFrame').checked = !!s.addFrame;
+  $('setSkeleton').checked = !!s.skeleton;
   $('setScicut').value = s.scicutPath || '';
   $('setOutput').value = s.outputDir || '';
 }
@@ -4892,19 +6073,23 @@ async function saveSettings(patch) {
   renderOffers(); // tolerance may have changed
 }
 
-function numSetting(id, key) {
+/** A cm text field bound to a mm setting. */
+function cmSetting(id, key) {
   $(id).addEventListener('change', () => {
     const n = parseNum($(id).value);
-    if (Number.isFinite(n)) saveSettings({ [key]: n });
+    if (Number.isFinite(n) && n >= 0) saveSettings({ [key]: cmToMm(n) });
     else renderSettings();
   });
 }
-numSetting('setGap', 'gap');
-numSetting('setMargin', 'margin');
-numSetting('setHistTol', 'histTol');
+cmSetting('setGap', 'gap');
+cmSetting('setMargin', 'margin');
+cmSetting('setHistTol', 'histTol');
+cmSetting('setTabsMax', 'tabsMax');
+cmSetting('setSkeletonSpacing', 'skeletonSpacing');
 $('setRotate').addEventListener('change', () => saveSettings({ allowRotate: $('setRotate').checked }));
 $('setAutoOpen').addEventListener('change', () => saveSettings({ autoOpen: $('setAutoOpen').checked }));
 $('setFrame').addEventListener('change', () => saveSettings({ addFrame: $('setFrame').checked }));
+$('setSkeleton').addEventListener('change', () => saveSettings({ skeleton: $('setSkeleton').checked }));
 $('setScicut').addEventListener('change', () => saveSettings({ scicutPath: $('setScicut').value }));
 $('setOutput').addEventListener('change', () => saveSettings({ outputDir: $('setOutput').value }));
 $('btnPickExe').addEventListener('click', async () => {
@@ -4981,6 +6166,8 @@ async function init() {
   if (typeof bridge.onToast === 'function') bridge.onToast(showToast);
   state.settings = await bridge.getSettings();
   renderSettings();
+  updateZoneUi();
+  renderTrash();
   await refreshParts();
   await refreshSets();
   await refreshHistory();

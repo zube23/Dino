@@ -5,7 +5,7 @@
  * and SAMPLE_FILES/SAMPLE_CONFIG are provided by the bundle.
  */
 (function () {
-  const { analyzePart, applySet, buildSheetDxf, generateAll } = __req('parts');
+  const { analyzePart, applySet, buildSheetDxf, generateAll, gapSweep } = __req('parts');
   const PAIR_MIRRORED = ['priority', 'mode', 'count', 'maxCount'];
 
   // ---- storage (localStorage with in-memory fallback) ----
@@ -33,8 +33,36 @@
 
   const DEFAULT_SETTINGS = {
     gap: 8, margin: 10, histTol: 20, allowRotate: true, autoOpen: false,
-    addFrame: false, scicutPath: '', outputDir: '',
+    addFrame: false, tabsMax: 30, skeleton: false, skeletonSpacing: 400,
+    scicutPath: '', outputDir: '',
   };
+  const NUMERIC_SETTINGS = { gap: 100, margin: 100, histTol: 500, tabsMax: 500, skeletonSpacing: 5000 };
+  const BOOL_SETTINGS = ['allowRotate', 'autoOpen', 'addFrame', 'skeleton'];
+  const TRASH_DAYS = 30;
+
+  function cmName(mm) {
+    return String(Math.round(mm / 10 * 10) / 10);
+  }
+
+  function reanalyzeEntry(entry) {
+    const info = analyzePart(entry.content, { lockRotation: !!entry.noRotate });
+    entry.preRotDeg = info.preRotDeg;
+    entry.w = Math.round(info.w * 1000) / 1000;
+    entry.h = Math.round(info.h * 1000) / 1000;
+    entry.area = Math.round(info.area * 1000) / 1000;
+    entry.outline = info.outline;
+    entry.texts = info.texts;
+    entry.holes = info.holes;
+    entry.warnings = info.warnings;
+    entry.entityCount = info.entityCount;
+  }
+
+  function loadTrash() {
+    const t = load('trash', []);
+    const cutoff = Date.now() - TRASH_DAYS * 24 * 3600 * 1000;
+    return (Array.isArray(t) ? t : []).filter((it) => it && it.entry
+      && new Date(it.deletedAt).getTime() >= cutoff);
+  }
 
   function newId() {
     return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -55,12 +83,14 @@
       maxCount: 0,
       pairId: null,
       enabled: true,
+      noRotate: false,
       preRotDeg: info.preRotDeg,
       w: Math.round(info.w * 1000) / 1000,
       h: Math.round(info.h * 1000) / 1000,
       area: Math.round(info.area * 1000) / 1000,
       outline: info.outline,
       texts: info.texts,
+      holes: info.holes,
       warnings: info.warnings,
       entityCount: info.entityCount,
       createdAt: new Date().toISOString(),
@@ -130,7 +160,50 @@
       sheetW: entry.width,
       sheetH: entry.height,
       addFrame: !!entry.addFrame,
+      extraLines: entry.extraLines || [],
+      tabsMax: entry.tabsMax || 0,
     });
+  }
+
+  function validDims(req) {
+    const width = Number(req && req.width);
+    const height = Number(req && req.height);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+      return { ok: false, message: 'Upišite ispravnu duljinu i širinu ploče.' };
+    }
+    if (width > 100000 || height > 100000) {
+      return { ok: false, message: 'Dimenzije ploče su prevelike.' };
+    }
+    return { ok: true, width, height };
+  }
+
+  function parseZone(req) {
+    if (!req || !req.zone || typeof req.zone !== 'object') return null;
+    const z = {
+      x: Number(req.zone.x), y: Number(req.zone.y), w: Number(req.zone.w), h: Number(req.zone.h),
+    };
+    if (![z.x, z.y, z.w, z.h].every(Number.isFinite) || z.w <= 0 || z.h <= 0) return null;
+    const r1 = (n) => Math.round(n * 10) / 10;
+    return { x: r1(z.x), y: r1(z.y), w: r1(z.w), h: r1(z.h) };
+  }
+
+  function resolveParts() {
+    const settings = getSettings();
+    const setsState = loadSetsState();
+    const set = setsState.sets.find((x) => x.id === setsState.activeSetId) || null;
+    const fillSet = set && set.fillSetId
+      ? setsState.sets.find((x) => x.id === set.fillSetId) || null
+      : null;
+    const effective = applySet(getLib(), set, fillSet);
+    if (effective.length === 0) {
+      return {
+        ok: false,
+        message: set
+          ? 'Aktivni set "' + set.name + '" je prazan. Dodajte partove u set u PRIPREMI.'
+          : 'Nema uključenih partova. Dodajte ih u PRIPREMI.',
+      };
+    }
+    return { ok: true, settings, parts: effective, set, fillSet };
   }
 
   // ---- file download (artifact capability, else plain browser save) ----
@@ -201,7 +274,13 @@
         if (k === 'name') entry.name = sanitizeName(v);
         else if (k === 'mode') entry.mode = v === 'fixed' ? 'fixed' : 'filler';
         else if (k === 'enabled') entry.enabled = !!v;
-        else if (k === 'priority' || k === 'count' || k === 'maxCount') {
+        else if (k === 'noRotate') {
+          const next = !!v;
+          if (next !== !!entry.noRotate) {
+            entry.noRotate = next;
+            reanalyzeEntry(entry);
+          }
+        } else if (k === 'priority' || k === 'count' || k === 'maxCount') {
           const n = Math.floor(Number(v));
           if (k === 'priority') entry.priority = Math.min(99, Math.max(1, Number.isFinite(n) ? n : 5));
           if (k === 'count') entry.count = Math.min(999, Math.max(0, Number.isFinite(n) ? n : 1));
@@ -252,7 +331,41 @@
       const sets = loadSetsState();
       for (const s of sets.sets) delete s.items[id];
       saveSetsState(sets);
+      if (entry) {
+        const t = loadTrash();
+        t.unshift({ entry: { ...entry, pairId: null }, deletedAt: new Date().toISOString() });
+        store('trash', t.slice(0, 20));
+      }
       return true;
+    },
+
+    listTrash: async () => loadTrash().map((it) => ({
+      id: it.entry.id,
+      name: it.entry.name,
+      w: it.entry.w,
+      h: it.entry.h,
+      outline: it.entry.outline,
+      deletedAt: it.deletedAt,
+    })),
+
+    restorePart: async (id) => {
+      const t = loadTrash();
+      const idx = t.findIndex((it) => it.entry.id === id);
+      if (idx === -1) throw new Error('Part više nije u Kanti.');
+      const lib = getLib();
+      if (!lib.some((p) => p.id === id)) lib.push(t[idx].entry);
+      store('library', lib);
+      t.splice(idx, 1);
+      store('trash', t);
+      return pub(lib.find((p) => p.id === id));
+    },
+
+    setSetFill: async (id, fillSetId) => {
+      const s = loadSetsState();
+      const set = s.sets.find((x) => x.id === id);
+      if (!set) throw new Error('Set ne postoji.');
+      set.fillSetId = (fillSetId && fillSetId !== id && s.sets.some((x) => x.id === fillSetId)) ? fillSetId : null;
+      return saveSetsState(s);
     },
 
     listSets: async () => loadSetsState(),
@@ -314,10 +427,10 @@
       const s = getSettings();
       for (const k of Object.keys(DEFAULT_SETTINGS)) {
         if (patch && Object.prototype.hasOwnProperty.call(patch, k)) {
-          if (k === 'gap' || k === 'margin' || k === 'histTol') {
+          if (k in NUMERIC_SETTINGS) {
             const n = Number(patch[k]);
-            s[k] = Number.isFinite(n) ? Math.min(k === 'histTol' ? 500 : 100, Math.max(0, n)) : s[k];
-          } else if (k === 'allowRotate' || k === 'autoOpen' || k === 'addFrame') {
+            s[k] = Number.isFinite(n) ? Math.min(NUMERIC_SETTINGS[k], Math.max(0, n)) : s[k];
+          } else if (BOOL_SETTINGS.indexOf(k) !== -1) {
             s[k] = !!patch[k];
           } else {
             s[k] = String(patch[k] || '');
@@ -328,27 +441,39 @@
       return s;
     },
 
+    gapSweep: async (req) => {
+      const d = validDims(req);
+      if (!d.ok) return d;
+      const rp = resolveParts();
+      if (!rp.ok) return rp;
+      const gaps = (Array.isArray(req.gaps) ? req.gaps : [])
+        .map(Number).filter((g) => Number.isFinite(g) && g >= 0 && g <= 100).slice(0, 12);
+      if (gaps.length === 0) return { ok: false, message: 'Nema razmaka za probu.' };
+      try {
+        const zone = parseZone(req);
+        const rows = gapSweep({
+          sheetW: d.width,
+          sheetH: d.height,
+          margin: rp.settings.margin,
+          allowRotate: rp.settings.allowRotate,
+          blocked: zone ? [zone] : [],
+          parts: rp.parts,
+        }, gaps);
+        return { ok: true, rows };
+      } catch (e) {
+        return { ok: false, message: (e && e.message) || String(e) };
+      }
+    },
+
     generate: async (req) => {
-      const width = Number(req && req.width);
-      const height = Number(req && req.height);
-      if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-        return { ok: false, message: 'Upi\u0161ite ispravnu duljinu i \u0161irinu plo\u010de (mm).' };
-      }
-      if (width > 100000 || height > 100000) {
-        return { ok: false, message: 'Dimenzije plo\u010de su prevelike.' };
-      }
-      const settings = getSettings();
-      const setsState = loadSetsState();
-      const set = setsState.sets.find((x) => x.id === setsState.activeSetId) || null;
-      const effective = applySet(getLib(), set);
-      if (effective.length === 0) {
-        return {
-          ok: false,
-          message: set
-            ? 'Aktivni set "' + set.name + '" je prazan. Dodajte partove u set u PRIPREMI.'
-            : 'Nema uklju\u010denih partova. Dodajte ih u PRIPREMI.',
-        };
-      }
+      const d = validDims(req);
+      if (!d.ok) return d;
+      const { width, height } = d;
+      const rp = resolveParts();
+      if (!rp.ok) return rp;
+      const { settings, set } = rp;
+      const effective = rp.parts;
+      const zone = parseZone(req);
       let variants;
       const t0 = performance.now();
       try {
@@ -359,6 +484,9 @@
           gap: settings.gap,
           allowRotate: settings.allowRotate,
           addFrame: settings.addFrame,
+          blocked: zone ? [zone] : [],
+          tabsMax: settings.tabsMax > 0 ? settings.tabsMax : 0,
+          skeleton: settings.skeleton ? { spacing: settings.skeletonSpacing } : null,
           parts: effective,
         }, {
           dense: !!(req && req.dense),
@@ -375,7 +503,7 @@
       if (variants.length === 0) {
         return {
           ok: false,
-          message: 'Ni\u0161ta ne stane na plo\u010du ' + height + ' x ' + width + ' mm. Provjerite dimenzije i rub.',
+          message: 'Ni\u0161ta ne stane na plo\u010du ' + cmName(height) + ' \u00d7 ' + cmName(width) + ' cm. Provjerite dimenzije i rub.',
         };
       }
       const now = new Date();
@@ -390,7 +518,7 @@
         const id = newId();
         const eWidth = result.knapDims ? result.knapDims.width : width;
         const eHeight = result.knapDims ? result.knapDims.height : height;
-        const fileName = 'Ploca_' + Math.round(eHeight) + 'x' + Math.round(eWidth)
+        const fileName = 'Ploca_' + cmName(eHeight) + 'x' + cmName(eWidth)
           + '_' + stamp + '_v' + (vi + 1) + '_' + id.slice(-4) + '.dxf';
         entries.push({
           id,
@@ -421,6 +549,11 @@
           utilization: Math.round(result.utilization * 1000) / 1000,
           totalPlaced: result.totalPlaced,
           capped: result.capped,
+          zone: zone || null,
+          extraLines: result.extraLines || [],
+          tabsMax: result.tabsMax || 0,
+          freeRects: (result.freeRects || []).slice(0, 8),
+          hint: result.hint || null,
         });
         sheets.push({
           sheetId: id,
@@ -437,6 +570,7 @@
           totalPlaced: result.totalPlaced,
           capped: result.capped,
           maxTotal: result.maxTotal,
+          hint: result.hint || null,
         });
       }
 
@@ -469,6 +603,6 @@
     },
     pickExe: async () => null,
     pickDir: async () => null,
-    appInfo: async () => ({ version: '1.4.1 · web proba', dataDir: '' }),
+    appInfo: async () => ({ version: '1.5.0 · web proba', dataDir: '' }),
   };
 })();

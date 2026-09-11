@@ -74,6 +74,27 @@ class MaxRectsBin {
     this.free = this._prune(next);
   }
 
+  /** Mark a rectangle (bin coords) as occupied - e.g. a keep-out zone. */
+  block(rect) {
+    const x0 = Math.max(0, rect.x);
+    const y0 = Math.max(0, rect.y);
+    const x1 = Math.min(this.width, rect.x + rect.w);
+    const y1 = Math.min(this.height, rect.y + rect.h);
+    if (x1 - x0 <= EPS || y1 - y0 <= EPS) return;
+    this._place({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+  }
+
+  /** Offer an extra free rectangle (bin coords) - e.g. a part's big cut-out. */
+  addFree(rect) {
+    const x0 = Math.max(0, rect.x);
+    const y0 = Math.max(0, rect.y);
+    const x1 = Math.min(this.width, rect.x + rect.w);
+    const y1 = Math.min(this.height, rect.y + rect.h);
+    if (x1 - x0 <= EPS || y1 - y0 <= EPS) return;
+    this.free.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+    this.free = this._prune(this.free);
+  }
+
   /** Split free rect r against the placed node; push remainders into out. */
   _split(r, node, out) {
     if (node.x >= r.x + r.w - EPS || node.x + node.w <= r.x + EPS
@@ -132,11 +153,15 @@ class MaxRectsBin {
  * @param {number} opts.gap     minimum clearance between parts (mm)
  * @param {boolean} [opts.allowRotate=true] allow 90-degree rotation
  * @param {number} [opts.maxTotal=5000] safety cap on total placed instances
+ * @param {Array} [opts.blocked] keep-out rectangles in sheet coords [{x,y,w,h}]
  * @param {Array} opts.parts  [{id, w, h, area, priority, mode:'fixed'|'filler',
- *                             count, maxCount}]
+ *                             count, maxCount, noRotate?, holes?}]
  *   - w/h are the part's tight bounding box (pre-rotated), WITHOUT gap
  *   - count: requested count for fixed parts
  *   - maxCount: cap for filler parts (0 or missing = unlimited)
+ *   - noRotate: never turn this part 90 degrees
+ *   - holes: part-local rectangles inside big cut-outs, offered as free
+ *     space once the part is placed
  *
  * @returns {{placements:Array, unplaced:Array, utilization:number,
  *            placedCounts:Object}}
@@ -147,7 +172,7 @@ function nestParts(opts) {
   const {
     sheetW, sheetH, margin = 0, gap = 0,
     allowRotate = true, maxTotal = 20000, parts = [], order = 'priority',
-    heuristic = 'bssf', rng = null,
+    heuristic = 'bssf', rng = null, blocked = [],
   } = opts;
 
   if (!(sheetW > 0) || !(sheetH > 0)) {
@@ -160,6 +185,11 @@ function nestParts(opts) {
   }
 
   const bin = new MaxRectsBin(usableW, usableH, heuristic);
+  // Keep-out zones ("ne diraj": a scratched corner, a test-cut hole...) are
+  // given in sheet coordinates and carved out before anything is placed.
+  for (const z of blocked) {
+    if (z && z.w > 0 && z.h > 0) bin.block({ x: z.x - margin, y: z.y - margin, w: z.w, h: z.h });
+  }
   const placements = [];
   const unplaced = [];
   const placedCounts = {};
@@ -207,7 +237,8 @@ function nestParts(opts) {
   };
 
   const tryPlace = (part) => {
-    const node = bin.insert(part.w + gap, part.h + gap, allowRotate);
+    // Per-part rotation lock (grain direction on brushed/foiled sheet).
+    const node = bin.insert(part.w + gap, part.h + gap, allowRotate && !part.noRotate);
     if (!node) return false;
     placements.push({
       id: part.id,
@@ -220,6 +251,19 @@ function nestParts(opts) {
     placedCounts[part.id] = (placedCounts[part.id] || 0) + 1;
     placedArea += Number.isFinite(part.area) && part.area > 0 ? part.area : part.w * part.h;
     total += 1;
+    // A big cut-out inside the placed part becomes free space for the parts
+    // that follow (nesting inside holes). Hole rects are part-local (bbox
+    // corner = origin); a 90-degree unit turn maps (x,y) -> (h - y, x).
+    if (Array.isArray(part.holes)) {
+      for (const hh of part.holes) {
+        const r = node.rotated
+          ? { x: node.x + (part.h - hh.y - hh.h), y: node.y + hh.x, w: hh.h, h: hh.w }
+          : { x: node.x + hh.x, y: node.y + hh.y, w: hh.w, h: hh.h };
+        // Gap on all four sides: the packer's rects carry +gap on top/right
+        // only, so shift by gap and shrink by gap.
+        bin.addFree({ x: r.x + gap, y: r.y + gap, w: r.w - gap, h: r.h - gap });
+      }
+    }
     return true;
   };
 
@@ -271,6 +315,17 @@ function nestParts(opts) {
     placeFillers();
   }
 
+  // Leftover free space in sheet coordinates, sized as the biggest part
+  // (without gap) that would still fit there - for the "why didn't it fit"
+  // explainer. Largest first, capped to keep history entries small.
+  const r1 = (n) => Math.round(n * 10) / 10;
+  const freeRects = bin.free
+    .map((r) => ({ x: margin + r.x, y: margin + r.y, w: r.w - gap, h: r.h - gap }))
+    .filter((r) => r.w > 0.5 && r.h > 0.5)
+    .sort((a, b) => b.w * b.h - a.w * a.h)
+    .slice(0, 12)
+    .map((r) => ({ x: r1(r.x), y: r1(r.y), w: r1(r.w), h: r1(r.h) }));
+
   return {
     placements,
     unplaced,
@@ -278,6 +333,7 @@ function nestParts(opts) {
     placedCounts,
     capped,
     maxTotal,
+    freeRects,
   };
 }
 

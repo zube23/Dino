@@ -8,7 +8,7 @@ const {
 } = require('electron');
 
 const {
-  analyzePart, applySet, buildSheetDxf, generateAll,
+  analyzePart, applySet, buildSheetDxf, generateAll, gapSweep,
 } = require('../src/core/parts');
 
 let win = null;
@@ -32,15 +32,52 @@ const DEFAULT_SETTINGS = {
   allowRotate: true,
   autoOpen: false, // odmah otvori generiranu ploču u CypCut-u
   addFrame: false, // dodaj okvir ploče u DXF (layer PLOCA)
+  tabsMax: 30,     // mikro-mostići na komadima manjim od (mm); 0 = isključeno
+  skeleton: false, // linije za rezanje kostura
+  skeletonSpacing: 400, // razmak tih linija (mm)
   scicutPath: '',  // putanja do CypCut/SciCut .exe (prazno = zadana aplikacija)
   outputDir: '',   // zadana mapa za "Spremi DXF"
   winBounds: null, // zadnja veličina/pozicija prozora
 };
+const NUMERIC_SETTINGS = { gap: 100, margin: 100, histTol: 500, tabsMax: 500, skeletonSpacing: 5000 };
+const BOOL_SETTINGS = ['allowRotate', 'autoOpen', 'addFrame', 'skeleton'];
+
+const trashDir = () => path.join(dataDir(), 'trash');
+const trashFile = () => path.join(dataDir(), 'trash.json');
+const TRASH_DAYS = 30;
 
 function ensureDirs() {
-  for (const dir of [dataDir(), partsDir(), tempDir()]) {
+  for (const dir of [dataDir(), partsDir(), tempDir(), trashDir()]) {
     fs.mkdirSync(dir, { recursive: true });
   }
+}
+
+/** "Kanta": deleted parts wait here 30 days before they are really gone. */
+function loadTrash() {
+  const t = readJson(trashFile(), { items: [] });
+  if (!Array.isArray(t.items)) t.items = [];
+  const cutoff = Date.now() - TRASH_DAYS * 24 * 3600 * 1000;
+  const keep = [];
+  let purged = false;
+  for (const it of t.items) {
+    if (new Date(it.deletedAt).getTime() < cutoff) {
+      purged = true;
+      try { fs.unlinkSync(path.join(trashDir(), it.entry.id + '.dxf')); } catch { /* gone */ }
+    } else {
+      keep.push(it);
+    }
+  }
+  if (purged) {
+    t.items = keep;
+    writeJson(trashFile(), t);
+  }
+  return t;
+}
+
+/** Sheet file names read duljina x širina in centimetres (the shop's unit). */
+function cmName(mm) {
+  const cm = Math.round(mm / 10 * 10) / 10;
+  return Number.isInteger(cm) ? String(cm) : String(cm);
 }
 
 function cleanTempDir() {
@@ -161,6 +198,8 @@ function materializeSheet(entry) {
     sheetW: entry.width,
     sheetH: entry.height,
     addFrame: !!entry.addFrame,
+    extraLines: entry.extraLines || [],
+    tabsMax: entry.tabsMax || 0,
   });
   fs.writeFileSync(file, dxf, 'utf8');
   return file;
@@ -241,12 +280,14 @@ ipcMain.handle('parts:add', (ev, files) => {
         maxCount: 0,
         pairId: null,
         enabled: true,
+        noRotate: false,
         preRotDeg: info.preRotDeg,
         w: Math.round(info.w * 1000) / 1000,
         h: Math.round(info.h * 1000) / 1000,
         area: Math.round(info.area * 1000) / 1000,
         outline: info.outline,
         texts: info.texts,
+        holes: info.holes,
         warnings: info.warnings,
         entityCount: info.entityCount,
         createdAt: new Date().toISOString(),
@@ -261,7 +302,22 @@ ipcMain.handle('parts:add', (ev, files) => {
   return { added, errors };
 });
 
-const EDITABLE_FIELDS = new Set(['name', 'priority', 'mode', 'count', 'maxCount', 'enabled']);
+const EDITABLE_FIELDS = new Set(['name', 'priority', 'mode', 'count', 'maxCount', 'enabled', 'noRotate']);
+
+/** Re-derive the geometry fields of a library entry from its DXF file. */
+function reanalyzeEntry(entry) {
+  const content = fs.readFileSync(path.join(partsDir(), entry.id + '.dxf'), 'utf8');
+  const info = analyzePart(content, { lockRotation: !!entry.noRotate });
+  entry.preRotDeg = info.preRotDeg;
+  entry.w = Math.round(info.w * 1000) / 1000;
+  entry.h = Math.round(info.h * 1000) / 1000;
+  entry.area = Math.round(info.area * 1000) / 1000;
+  entry.outline = info.outline;
+  entry.texts = info.texts;
+  entry.holes = info.holes;
+  entry.warnings = info.warnings;
+  entry.entityCount = info.entityCount;
+}
 
 function applyPartPatch(entry, patch) {
   const changed = {};
@@ -270,7 +326,15 @@ function applyPartPatch(entry, patch) {
     if (k === 'name') entry.name = sanitizeName(v);
     else if (k === 'mode') entry.mode = v === 'fixed' ? 'fixed' : 'filler';
     else if (k === 'enabled') entry.enabled = !!v;
-    else {
+    else if (k === 'noRotate') {
+      // The rotation lock also disables the tightest-box pre-rotation, so
+      // the bounding box and outline change with it.
+      const next = !!v;
+      if (next !== !!entry.noRotate) {
+        entry.noRotate = next;
+        reanalyzeEntry(entry);
+      }
+    } else {
       const n = Math.floor(Number(v));
       if (k === 'priority') entry.priority = Math.min(99, Math.max(1, Number.isFinite(n) ? n : 5));
       if (k === 'count') entry.count = Math.min(999, Math.max(0, Number.isFinite(n) ? n : 1));
@@ -326,6 +390,7 @@ ipcMain.handle('parts:pair', (ev, idA, idB) => {
 
 ipcMain.handle('parts:remove', (ev, id) => {
   if (!validId(id)) throw new Error('Neispravan ID parta.');
+  ensureDirs();
   const lib = loadLibrary();
   const entry = lib.parts.find((p) => p.id === id);
   if (entry && entry.pairId) {
@@ -344,10 +409,51 @@ ipcMain.handle('parts:remove', (ev, id) => {
     }
   }
   if (setsTouched) saveSets(sets);
+  // Into the "Kanta" - the DXF and the record survive 30 days.
+  const src = path.join(partsDir(), id + '.dxf');
+  if (entry) {
+    try {
+      fs.renameSync(src, path.join(trashDir(), id + '.dxf'));
+      const t = loadTrash();
+      t.items.unshift({ entry: { ...entry, pairId: null }, deletedAt: new Date().toISOString() });
+      writeJson(trashFile(), t);
+    } catch { /* no file to keep */ }
+  }
   try {
-    fs.unlinkSync(path.join(partsDir(), id + '.dxf'));
-  } catch { /* already gone */ }
+    fs.unlinkSync(src);
+  } catch { /* already moved */ }
   return true;
+});
+
+// ---------------------------------------------------------------------------
+// IPC: trash ("Kanta")
+// ---------------------------------------------------------------------------
+
+ipcMain.handle('trash:list', () => loadTrash().items.map((it) => ({
+  id: it.entry.id,
+  name: it.entry.name,
+  w: it.entry.w,
+  h: it.entry.h,
+  outline: it.entry.outline,
+  deletedAt: it.deletedAt,
+})));
+
+ipcMain.handle('trash:restore', (ev, id) => {
+  if (!validId(id)) throw new Error('Neispravan ID parta.');
+  const t = loadTrash();
+  const idx = t.items.findIndex((it) => it.entry.id === id);
+  if (idx === -1) throw new Error('Part više nije u Kanti.');
+  const it = t.items[idx];
+  const src = path.join(trashDir(), id + '.dxf');
+  if (!fs.existsSync(src)) throw new Error('DXF datoteka parta više ne postoji.');
+  ensureDirs();
+  fs.renameSync(src, path.join(partsDir(), id + '.dxf'));
+  const lib = loadLibrary();
+  if (!lib.parts.some((p) => p.id === id)) lib.parts.push(it.entry);
+  writeJson(libraryFile(), lib);
+  t.items.splice(idx, 1);
+  writeJson(trashFile(), t);
+  return it.entry;
 });
 
 // ---------------------------------------------------------------------------
@@ -378,6 +484,17 @@ ipcMain.handle('sets:remove', (ev, id) => {
   const s = loadSets();
   s.sets = s.sets.filter((x) => x.id !== id);
   if (s.activeSetId === id) s.activeSetId = null;
+  saveSets(s);
+  return s;
+});
+
+// "Dopuni iz drugog seta": leftover space on this set's sheets is filled
+// with parts from the chosen set (as fillers, after everything else).
+ipcMain.handle('sets:setFill', (ev, id, fillSetId) => {
+  const s = loadSets();
+  const set = s.sets.find((x) => x.id === id);
+  if (!set) throw new Error('Set ne postoji.');
+  set.fillSetId = (fillSetId && fillSetId !== id && s.sets.some((x) => x.id === fillSetId)) ? fillSetId : null;
   saveSets(s);
   return s;
 });
@@ -435,10 +552,10 @@ ipcMain.handle('settings:set', (ev, patch) => {
   for (const k of Object.keys(DEFAULT_SETTINGS)) {
     if (k === 'winBounds') continue;
     if (patch && Object.prototype.hasOwnProperty.call(patch, k)) {
-      if (k === 'gap' || k === 'margin' || k === 'histTol') {
+      if (k in NUMERIC_SETTINGS) {
         const n = Number(patch[k]);
-        s[k] = Number.isFinite(n) ? Math.min(k === 'histTol' ? 500 : 100, Math.max(0, n)) : s[k];
-      } else if (k === 'allowRotate' || k === 'autoOpen' || k === 'addFrame') {
+        s[k] = Number.isFinite(n) ? Math.min(NUMERIC_SETTINGS[k], Math.max(0, n)) : s[k];
+      } else if (BOOL_SETTINGS.indexOf(k) !== -1) {
         s[k] = !!patch[k];
       } else {
         s[k] = String(patch[k] || '');
@@ -449,26 +566,19 @@ ipcMain.handle('settings:set', (ev, patch) => {
   return s;
 });
 
-// ---------------------------------------------------------------------------
-// IPC: generate + sheets
-// ---------------------------------------------------------------------------
-
-ipcMain.handle('nest:generate', async (ev, req) => {
-  ensureDirs();
-  const width = Number(req && req.width);
-  const height = Number(req && req.height);
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-    return { ok: false, message: 'Upišite ispravnu duljinu i širinu ploče (mm).' };
-  }
-  if (width > 100000 || height > 100000) {
-    return { ok: false, message: 'Dimenzije ploče su prevelike.' };
-  }
-
+/**
+ * Everything a nesting run needs from disk: settings, the active set with
+ * its optional fill set applied, and the DXF content of every part.
+ */
+function resolveParts() {
   const settings = loadSettings();
   const lib = loadLibrary();
   const setsState = loadSets();
   const activeSet = setsState.sets.find((s) => s.id === setsState.activeSetId) || null;
-  const effective = applySet(lib.parts, activeSet);
+  const fillSet = activeSet && activeSet.fillSetId
+    ? setsState.sets.find((s) => s.id === activeSet.fillSetId) || null
+    : null;
+  const effective = applySet(lib.parts, activeSet, fillSet);
   if (effective.length === 0) {
     return {
       ok: false,
@@ -477,7 +587,6 @@ ipcMain.handle('nest:generate', async (ev, req) => {
         : 'Nema uključenih partova. Dodajte ih u PRIPREMI.',
     };
   }
-
   const parts = [];
   for (const p of effective) {
     let content;
@@ -488,6 +597,68 @@ ipcMain.handle('nest:generate', async (ev, req) => {
     }
     parts.push({ ...p, content });
   }
+  return { ok: true, settings, parts, activeSet, fillSet };
+}
+
+function parseZone(req) {
+  if (!req || !req.zone || typeof req.zone !== 'object') return null;
+  const z = {
+    x: Number(req.zone.x), y: Number(req.zone.y), w: Number(req.zone.w), h: Number(req.zone.h),
+  };
+  if (![z.x, z.y, z.w, z.h].every(Number.isFinite) || z.w <= 0 || z.h <= 0) return null;
+  const r1 = (n) => Math.round(n * 10) / 10;
+  return { x: r1(z.x), y: r1(z.y), w: r1(z.w), h: r1(z.h) };
+}
+
+function validDims(req) {
+  const width = Number(req && req.width);
+  const height = Number(req && req.height);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return { ok: false, message: 'Upišite ispravnu duljinu i širinu ploče.' };
+  }
+  if (width > 100000 || height > 100000) {
+    return { ok: false, message: 'Dimenzije ploče su prevelike.' };
+  }
+  return { ok: true, width, height };
+}
+
+// "Razmak uzivo": piece counts for several candidate gaps, instant.
+ipcMain.handle('nest:gapSweep', (ev, req) => {
+  const d = validDims(req);
+  if (!d.ok) return d;
+  const rp = resolveParts();
+  if (!rp.ok) return rp;
+  const gaps = (Array.isArray(req.gaps) ? req.gaps : [])
+    .map(Number).filter((g) => Number.isFinite(g) && g >= 0 && g <= 100).slice(0, 12);
+  if (gaps.length === 0) return { ok: false, message: 'Nema razmaka za probu.' };
+  try {
+    const rows = gapSweep({
+      sheetW: d.width,
+      sheetH: d.height,
+      margin: rp.settings.margin,
+      allowRotate: rp.settings.allowRotate,
+      blocked: parseZone(req) ? [parseZone(req)] : [],
+      parts: rp.parts,
+    }, gaps);
+    return { ok: true, rows };
+  } catch (e) {
+    return { ok: false, message: e && e.message ? e.message : String(e) };
+  }
+});
+
+// ---------------------------------------------------------------------------
+// IPC: generate + sheets
+// ---------------------------------------------------------------------------
+
+ipcMain.handle('nest:generate', async (ev, req) => {
+  ensureDirs();
+  const d = validDims(req);
+  if (!d.ok) return d;
+  const { width, height } = d;
+  const rp = resolveParts();
+  if (!rp.ok) return rp;
+  const { settings, parts, activeSet } = rp;
+  const zone = parseZone(req);
 
   let variants;
   const t0 = Date.now();
@@ -499,6 +670,9 @@ ipcMain.handle('nest:generate', async (ev, req) => {
       gap: settings.gap,
       allowRotate: settings.allowRotate,
       addFrame: settings.addFrame,
+      blocked: zone ? [zone] : [],
+      tabsMax: settings.tabsMax > 0 ? settings.tabsMax : 0,
+      skeleton: settings.skeleton ? { spacing: settings.skeletonSpacing } : null,
       parts,
     }, {
       dense: !!(req && req.dense),
@@ -514,7 +688,7 @@ ipcMain.handle('nest:generate', async (ev, req) => {
   if (variants.length === 0) {
     return {
       ok: false,
-      message: 'Ništa ne stane na ploču ' + height + ' x ' + width + ' mm. Provjerite dimenzije i rub.',
+      message: 'Ništa ne stane na ploču ' + cmName(height) + ' × ' + cmName(width) + ' cm. Provjerite dimenzije i rub.',
     };
   }
 
@@ -532,8 +706,8 @@ ipcMain.handle('nest:generate', async (ev, req) => {
     // entry records the REAL (bigger) dimensions the operator must cut on.
     const eWidth = result.knapDims ? result.knapDims.width : width;
     const eHeight = result.knapDims ? result.knapDims.height : height;
-    // File name reads duljina x širina (Y x X).
-    const fileName = 'Ploca_' + Math.round(eHeight) + 'x' + Math.round(eWidth)
+    // File name reads duljina x širina (Y x X) in centimetres.
+    const fileName = 'Ploca_' + cmName(eHeight) + 'x' + cmName(eWidth)
       + '_' + stamp + '_v' + (vi + 1) + '_' + id.slice(-4) + '.dxf';
     entries.push({
       id,
@@ -564,6 +738,11 @@ ipcMain.handle('nest:generate', async (ev, req) => {
       utilization: Math.round(result.utilization * 1000) / 1000,
       totalPlaced: result.totalPlaced,
       capped: result.capped,
+      zone: zone || null,
+      extraLines: result.extraLines || [],
+      tabsMax: result.tabsMax || 0,
+      freeRects: (result.freeRects || []).slice(0, 8),
+      hint: result.hint || null,
     });
     sheets.push({
       sheetId: id,
@@ -580,6 +759,7 @@ ipcMain.handle('nest:generate', async (ev, req) => {
       totalPlaced: result.totalPlaced,
       capped: result.capped,
       maxTotal: result.maxTotal,
+      hint: result.hint || null,
     });
   }
 
@@ -594,7 +774,7 @@ ipcMain.handle('nest:generate', async (ev, req) => {
     // the operator asked for, so it must be a conscious manual choice.
     if (entries[0].variant === 'naknap') {
       openMessage = 'NA KNAP ploča se ne otvara automatski (veća je od tražene '
-        + height + ' × ' + width + ' mm) — provjerite lim pa je otvorite ručno.';
+        + cmName(height) + ' × ' + cmName(width) + ' cm) — provjerite lim pa je otvorite ručno.';
     } else {
       try {
         const p = materializeSheet(entries[0]);

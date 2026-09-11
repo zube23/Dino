@@ -13,6 +13,7 @@ const state = {
   activeSetId: null,
   lastBatch: null,
   selectedSheetId: null,
+  zone: null, // keep-out rectangle {x,y,w,h,sheetW,sheetH} in mm, or null
 };
 
 const bridge = window.dino;
@@ -31,24 +32,28 @@ const VARIANT_BADGE = {
 // Helpers
 // ---------------------------------------------------------------------------
 
+// The shop thinks in centimetres: every length the operator types or reads
+// is cm (decimal point or comma), while the core and the DXF stay in mm.
 function parseNum(text) {
   if (typeof text !== 'string') return NaN;
-  let t = text.trim();
+  const t = text.trim().replace(',', '.');
   if (t === '') return NaN;
-  // "2.000" is a Croatian thousands notation, not 2 millimeters.
-  if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
-  t = t.replace(',', '.');
   return Number(t);
 }
 
-function fmtMm(n) {
-  // No thousands grouping - the shown value must round-trip through parseNum.
-  return String(Math.round(n * 10) / 10).replace('.', ',');
+/** cm typed by the operator -> mm for the core (rounded to 0.1 mm). */
+function cmToMm(cm) {
+  return Math.round(cm * 100) / 10;
+}
+
+/** mm from the core -> cm for display, at most 2 decimals, Croatian comma. */
+function fmtCm(mm) {
+  return String(Math.round(mm * 10) / 100).replace('.', ',');
 }
 
 /** Sheets display as DULJINA x ŠIRINA (the machine's long side first = Y). */
 function dimsText(entry) {
-  return fmtMm(entry.height) + ' × ' + fmtMm(entry.width) + ' mm';
+  return fmtCm(entry.height) + ' × ' + fmtCm(entry.width) + ' cm';
 }
 
 function fmtDate(iso) {
@@ -160,18 +165,61 @@ function placementPolys(pl) {
   return polys;
 }
 
-function drawSheetEntry(canvas, entry) {
-  const ctx = canvas.getContext('2d');
+/** Sheet-mm -> canvas-px mapping used by every sheet drawing and by zone picking. */
+function previewTransform(canvas, entry) {
   const W = canvas.width;
   const H = canvas.height;
-  ctx.clearRect(0, 0, W, H);
-
   const pad = Math.max(8, Math.round(W * 0.02));
   const scale = Math.min((W - 2 * pad) / entry.width, (H - 2 * pad) / entry.height);
   const ox = (W - entry.width * scale) / 2;
   const oy = (H - entry.height * scale) / 2;
-  const tx = (x) => ox + x * scale;
-  const ty = (y) => H - oy - y * scale; // flip Y (DXF Y is up)
+  return {
+    W, H, scale, ox, oy,
+    tx: (x) => ox + x * scale,
+    ty: (y) => H - oy - y * scale, // flip Y (DXF Y is up)
+    fromCanvas: (px, py) => [(px - ox) / scale, (H - oy - py) / scale],
+  };
+}
+
+function hatchRect(ctx, t, r, fill, stroke) {
+  const x = t.tx(r.x);
+  const y = t.ty(r.y + r.h);
+  const w = r.w * t.scale;
+  const h = r.h * t.scale;
+  ctx.save();
+  ctx.fillStyle = fill;
+  ctx.fillRect(x, y, w, h);
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 1;
+  const step = Math.max(6, t.W / 120);
+  for (let d = -h; d < w; d += step) {
+    ctx.beginPath();
+    ctx.moveTo(x + d, y);
+    ctx.lineTo(x + d + h, y + h);
+    ctx.stroke();
+  }
+  ctx.restore();
+  ctx.save();
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = Math.max(1, t.W / 600);
+  ctx.setLineDash([5, 4]);
+  ctx.strokeRect(x, y, w, h);
+  ctx.restore();
+}
+
+/**
+ * Draw a sheet entry. opts: {free: hatch leftover free space, liveZone: a
+ * rectangle being dragged right now (sheet coords)}.
+ */
+function drawSheetEntry(canvas, entry, opts) {
+  const o = opts || {};
+  const ctx = canvas.getContext('2d');
+  const t = previewTransform(canvas, entry);
+  const { W, H, scale, tx, ty } = t;
+  ctx.clearRect(0, 0, W, H);
 
   ctx.fillStyle = '#242c37';
   ctx.strokeStyle = '#5b6b7f';
@@ -179,12 +227,39 @@ function drawSheetEntry(canvas, entry) {
   ctx.fillRect(tx(0), ty(entry.height), entry.width * scale, entry.height * scale);
   ctx.strokeRect(tx(0), ty(entry.height), entry.width * scale, entry.height * scale);
 
+  // Keep-out zone ("ne diraj") - red hatch, stored with the entry.
+  if (entry.zone && entry.zone.w > 0) hatchRect(ctx, t, entry.zone, 'rgba(255, 93, 93, 0.18)', '#ff5d5d');
+  if (o.liveZone && o.liveZone.w > 0) hatchRect(ctx, t, o.liveZone, 'rgba(255, 93, 93, 0.25)', '#ff8a8a');
+
   if (!Array.isArray(entry.placements) || entry.placements.length === 0) {
     ctx.fillStyle = '#8b98a8';
     ctx.font = Math.round(W / 30) + 'px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('stara ploča — samo datoteka', W / 2, H / 2);
     return;
+  }
+
+  // Leftover free space (for "zasto ne stane") - blue hatch, big preview only.
+  if (o.free && Array.isArray(entry.freeRects)) {
+    for (const r of entry.freeRects.slice(0, 4)) {
+      if (r.w * scale < 6 || r.h * scale < 6) continue;
+      hatchRect(ctx, t, r, 'rgba(88, 166, 255, 0.10)', 'rgba(88, 166, 255, 0.7)');
+    }
+  }
+
+  // Skeleton chop lines - thin grey dashes.
+  if (Array.isArray(entry.extraLines) && entry.extraLines.length) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(160, 170, 185, 0.7)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([6, 4]);
+    for (const ln of entry.extraLines) {
+      ctx.beginPath();
+      ctx.moveTo(tx(ln.x1), ty(ln.y1));
+      ctx.lineTo(tx(ln.x2), ty(ln.y2));
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   for (const pl of entry.placements) {
@@ -249,20 +324,33 @@ function renderSetBar() {
   for (const s of state.sets) bar.appendChild(mk(s.name, s.id));
 }
 
+/** Typed sheet size in mm ({len: Y/duljina, wid: X/sirina}) or null. */
+function typedDims() {
+  const len = parseNum($('inLen').value);   // DULJINA (cm) -> Y (sheetH)
+  const wid = parseNum($('inWid').value);   // ŠIRINA (cm)  -> X (sheetW)
+  if (!Number.isFinite(len) || !Number.isFinite(wid) || len <= 0 || wid <= 0) return null;
+  return { len: cmToMm(len), wid: cmToMm(wid) };
+}
+
 async function generate(dense) {
   if ($('btnGenerate').disabled) return; // already running (Enter bypasses the button)
-  const len = parseNum($('inLen').value);   // DULJINA -> Y (sheetH)
-  const wid = parseNum($('inWid').value);   // ŠIRINA  -> X (sheetW)
+  const dims = typedDims();
   const status = $('genStatus');
   status.hidden = false;
   status.className = 'status';
 
-  if (!Number.isFinite(len) || !Number.isFinite(wid) || len <= 0 || wid <= 0) {
+  if (!dims) {
     status.classList.add('err');
-    status.textContent = 'Upišite duljinu i širinu ploče u milimetrima.';
+    status.textContent = 'Upišite duljinu i širinu ploče u centimetrima (npr. 300 i 150).';
     return; // keep the selected sheet's warnings (#genWarn) untouched
   }
+  const { len, wid } = dims;
   $('genWarn').hidden = true;
+  // A keep-out zone belongs to one sheet size.
+  if (state.zone && (state.zone.sheetW !== wid || state.zone.sheetH !== len)) {
+    state.zone = null;
+    updateZoneUi();
+  }
 
   const btn = $('btnGenerate');
   const btnD = $('btnDense');
@@ -275,7 +363,12 @@ async function generate(dense) {
     // The web bridge nests synchronously on the UI thread (seconds for the
     // dense search) - yield once so the status and disabled buttons paint.
     if (dense || IS_WEB) await new Promise((r) => setTimeout(r, 30));
-    const res = await bridge.generate({ width: wid, height: len, dense: !!dense });
+    const res = await bridge.generate({
+      width: wid,
+      height: len,
+      dense: !!dense,
+      zone: state.zone ? { x: state.zone.x, y: state.zone.y, w: state.zone.w, h: state.zone.h } : null,
+    });
     if (!res.ok) {
       status.classList.add('err');
       status.textContent = res.message || 'Generiranje nije uspjelo.';
@@ -330,9 +423,9 @@ function dimsMatch(entry, w, h, tol) {
 }
 
 function currentMatches() {
-  const len = parseNum($('inLen').value);
-  const wid = parseNum($('inWid').value);
-  if (!Number.isFinite(len) || !Number.isFinite(wid) || len <= 0 || wid <= 0) return null;
+  const dims = typedDims();
+  if (!dims) return null;
+  const { len, wid } = dims;
   const tol = (state.settings && Number.isFinite(state.settings.histTol)) ? state.settings.histTol : 20;
   // Sheets from the just-generated batch always match with at least the
   // maximum na-knap bump as tolerance - otherwise a strict histTol (< 10 mm)
@@ -402,8 +495,8 @@ function renderOffers() {
     return;
   }
   box.hidden = false;
-  $('offersTitle').textContent = 'Ploče ~ ' + fmtMm(cur.len) + ' × ' + fmtMm(cur.wid)
-    + ' mm (±' + fmtMm(cur.tol) + ' mm) — ' + cur.matches.length + ' kom';
+  $('offersTitle').textContent = 'Ploče ~ ' + fmtCm(cur.len) + ' × ' + fmtCm(cur.wid)
+    + ' cm (±' + fmtCm(cur.tol) + ' cm) — ' + cur.matches.length + ' kom';
   const wrap = $('offerCards');
   wrap.innerHTML = '';
   for (const m of cur.matches.slice(0, 12)) wrap.appendChild(sheetCard(m));
@@ -423,7 +516,10 @@ function selectSheet(id) {
     c.classList.toggle('selected', c.dataset.id === id);
   }
   $('result').hidden = false;
-  drawSheetEntry($('preview'), entry);
+  drawSheetEntry($('preview'), entry, { free: true });
+  renderWhy(entry);
+  updateZoneUi();
+  if (!$('gapStrip').hidden) refreshGapStrip();
 
   const stats = $('stats');
   stats.innerHTML = '';
@@ -494,6 +590,190 @@ $('btnSave').addEventListener('click', () => {
 });
 
 // ---------------------------------------------------------------------------
+// "Zasto ne stane?" explainer
+// ---------------------------------------------------------------------------
+
+function renderWhy(entry) {
+  const box = $('whyBox');
+  const h = entry && entry.hint;
+  if (!h) {
+    box.hidden = true;
+    return;
+  }
+  const parts = [];
+  parts.push('<b>ZAŠTO NE STANE?</b> ' + escapeHtml(h.partName) + ' (' + fmtCm(h.partW) + ' × ' + fmtCm(h.partH) + ' cm)');
+  if (h.free) {
+    parts.push('— najveća slobodna rupa na ploči je <b>' + fmtCm(h.free.w) + ' × ' + fmtCm(h.free.h) + ' cm</b>'
+      + (h.missing > 0 ? ', komadu fali <b>' + fmtCm(h.missing) + ' cm</b>.' : '.'));
+  } else {
+    parts.push('— na ploči nema slobodnog mjesta.');
+  }
+  if (h.betterGap) {
+    parts.push('S razmakom <b>' + fmtCm(h.betterGap.gap) + ' cm</b> umjesto '
+      + fmtCm(state.settings ? state.settings.gap : 8) + ' cm stalo bi još <b>' + h.betterGap.extra + ' kom</b>'
+      + ' — probaj RAZMAK UŽIVO.');
+  }
+  box.innerHTML = parts.join(' ');
+  box.hidden = false;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+// ---------------------------------------------------------------------------
+// Keep-out zone ("ZONA"): drag a rectangle on the big preview, the sheet is
+// regenerated around it.
+// ---------------------------------------------------------------------------
+
+let zoning = false;
+let zoneDrag = null;
+
+function updateZoneUi() {
+  $('btnZone').textContent = zoning ? '✕ ODUSTANI' : (state.zone ? '✏ NOVA ZONA' : '✏ ZONA');
+  $('btnZoneClear').hidden = !state.zone;
+  $('zoneHint').hidden = !zoning;
+  $('preview').classList.toggle('zoning', zoning);
+}
+
+function selectedEntry() {
+  return state.history.find((s) => s.id === state.selectedSheetId) || null;
+}
+
+function canvasPoint(canvas, e) {
+  const r = canvas.getBoundingClientRect();
+  return [((e.clientX - r.left) * canvas.width) / r.width, ((e.clientY - r.top) * canvas.height) / r.height];
+}
+
+function dragRect(entry) {
+  if (!zoneDrag) return null;
+  const x0 = Math.max(0, Math.min(zoneDrag.x0, zoneDrag.x1));
+  const y0 = Math.max(0, Math.min(zoneDrag.y0, zoneDrag.y1));
+  const x1 = Math.min(entry.width, Math.max(zoneDrag.x0, zoneDrag.x1));
+  const y1 = Math.min(entry.height, Math.max(zoneDrag.y0, zoneDrag.y1));
+  const r1 = (n) => Math.round(n * 10) / 10;
+  return { x: r1(x0), y: r1(y0), w: r1(x1 - x0), h: r1(y1 - y0) };
+}
+
+$('btnZone').addEventListener('click', () => {
+  zoning = !zoning;
+  zoneDrag = null;
+  updateZoneUi();
+});
+$('btnZoneClear').addEventListener('click', () => {
+  state.zone = null;
+  zoning = false;
+  updateZoneUi();
+  generate(false);
+});
+$('preview').addEventListener('mousedown', (e) => {
+  const entry = selectedEntry();
+  if (!zoning || !entry) return;
+  e.preventDefault();
+  const t = previewTransform($('preview'), entry);
+  const [x, y] = t.fromCanvas(...canvasPoint($('preview'), e));
+  zoneDrag = { x0: x, y0: y, x1: x, y1: y };
+});
+$('preview').addEventListener('mousemove', (e) => {
+  const entry = selectedEntry();
+  if (!zoneDrag || !entry) return;
+  const t = previewTransform($('preview'), entry);
+  const [x, y] = t.fromCanvas(...canvasPoint($('preview'), e));
+  zoneDrag.x1 = x;
+  zoneDrag.y1 = y;
+  drawSheetEntry($('preview'), entry, { free: true, liveZone: dragRect(entry) });
+});
+window.addEventListener('mouseup', () => {
+  const entry = selectedEntry();
+  if (!zoneDrag || !entry) return;
+  const r = dragRect(entry);
+  zoneDrag = null;
+  zoning = false;
+  if (r && r.w >= 5 && r.h >= 5) {
+    state.zone = { ...r, sheetW: entry.width, sheetH: entry.height };
+    // The zone is in the coordinates of the sheet on screen - make the
+    // inputs match it so the regenerate hits the same size.
+    $('inLen').value = fmtCm(entry.height);
+    $('inWid').value = fmtCm(entry.width);
+    updateZoneUi();
+    generate(false);
+  } else {
+    updateZoneUi();
+    drawSheetEntry($('preview'), entry, { free: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// "Razmak uzivo": live piece counts for other gaps
+// ---------------------------------------------------------------------------
+
+let gapTimer = null;
+
+function gapContext() {
+  const entry = selectedEntry();
+  const dims = typedDims() || (entry ? { len: entry.height, wid: entry.width } : null);
+  if (!dims) return null;
+  return {
+    width: dims.wid,
+    height: dims.len,
+    zone: state.zone ? { x: state.zone.x, y: state.zone.y, w: state.zone.w, h: state.zone.h } : null,
+  };
+}
+
+async function refreshGapStrip() {
+  const ctx = gapContext();
+  const cur = Number($('gapRange').value);
+  $('gapValue').textContent = fmtCm(cur) + ' cm → …';
+  if (!ctx) return;
+  const gaps = [];
+  for (let g = Math.max(0, cur - 3); g <= cur + 3; g++) if (gaps.indexOf(g) === -1) gaps.push(g);
+  try {
+    const res = await bridge.gapSweep({ ...ctx, gaps });
+    if (!res.ok) {
+      $('gapValue').textContent = res.message || '';
+      return;
+    }
+    const rows = $('gapRows');
+    rows.innerHTML = '';
+    const best = Math.max(...res.rows.map((r) => r.placed));
+    for (const r of res.rows) {
+      const chip = el('button', 'chip' + (r.placed === best ? ' best' : '') + (r.gap === cur ? ' active' : ''),
+        fmtCm(r.gap) + ' cm → ' + r.placed + ' kom');
+      chip.addEventListener('click', () => {
+        $('gapRange').value = String(r.gap);
+        refreshGapStrip();
+      });
+      rows.appendChild(chip);
+      if (r.gap === cur) {
+        $('gapValue').textContent = fmtCm(cur) + ' cm → ' + r.placed + ' kom'
+          + (r.unplaced > 0 ? ' (' + r.unplaced + ' ne stane)' : '');
+      }
+    }
+  } catch (e) {
+    $('gapValue').textContent = 'Greška: ' + (e && e.message ? e.message : e);
+  }
+}
+
+$('btnGap').addEventListener('click', () => {
+  const strip = $('gapStrip');
+  strip.hidden = !strip.hidden;
+  if (!strip.hidden) {
+    $('gapRange').value = String(Math.round(state.settings ? state.settings.gap : 8));
+    refreshGapStrip();
+  }
+});
+$('gapRange').addEventListener('input', () => {
+  clearTimeout(gapTimer);
+  gapTimer = setTimeout(refreshGapStrip, 80);
+});
+$('btnGapApply').addEventListener('click', async () => {
+  const g = Number($('gapRange').value);
+  await saveSettings({ gap: g });
+  $('gapStrip').hidden = true;
+  generate(false);
+});
+
+// ---------------------------------------------------------------------------
 // Sets management (prep view)
 // ---------------------------------------------------------------------------
 
@@ -531,6 +811,31 @@ function renderSetsList() {
     row.appendChild(nameIn);
 
     row.appendChild(el('div', 'set-count', Object.keys(s.items || {}).length + ' partova'));
+
+    // "Dopuni iz drugog seta": leftover space goes to that set's parts.
+    const fill = el('label', 'set-fill');
+    fill.appendChild(el('span', '', 'dopuni iz:'));
+    const sel = document.createElement('select');
+    sel.title = 'Kad ovaj set ostavi prazno mjesto, popuni ga partovima odabranog seta';
+    const none = document.createElement('option');
+    none.value = '';
+    none.textContent = '— ništa —';
+    sel.appendChild(none);
+    for (const o of state.sets) {
+      if (o.id === s.id) continue;
+      const opt = document.createElement('option');
+      opt.value = o.id;
+      opt.textContent = o.name;
+      if (s.fillSetId === o.id) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    sel.addEventListener('change', async () => {
+      const res = await bridge.setSetFill(s.id, sel.value || null);
+      state.sets = res.sets;
+      renderSetsList();
+    });
+    fill.appendChild(sel);
+    row.appendChild(fill);
 
     const del = el('button', 'btn small danger', '✕');
     del.title = 'Obriši set';
@@ -606,7 +911,12 @@ function showPartModal(part) {
   $('modalTitle').textContent = part.name;
   drawOutline($('modalCanvas'), part, 20);
   const info = [];
-  info.push('Dimenzije: ' + fmtMm(part.w) + ' × ' + fmtMm(part.h) + ' mm · površina ' + (part.area / 100).toFixed(1) + ' cm²');
+  info.push('Dimenzije: ' + fmtCm(part.w) + ' × ' + fmtCm(part.h) + ' cm · površina ' + (part.area / 100).toFixed(1) + ' cm²');
+  if (part.noRotate) info.push('Ne okreći: ostaje kako je nacrtan (samo 0° ili 180°).');
+  if (Array.isArray(part.holes) && part.holes.length) {
+    info.push('Velike rupe (u njih program slaže manje komade): '
+      + part.holes.map((h) => fmtCm(h.w) + '×' + fmtCm(h.h) + ' cm').join(', '));
+  }
   if (part.entityCount) info.push('Učitano entiteta: ' + part.entityCount);
   if (part.pairId && state.partsById[part.pairId]) {
     info.push('U paru s: ' + state.partsById[part.pairId].name + ' (uvijek idu zajedno na ploču)');
@@ -642,7 +952,7 @@ function openPairPicker(part) {
     cv.height = 48;
     drawOutline(cv, p, 4);
     b.appendChild(cv);
-    b.appendChild(el('span', '', p.name + ' (' + fmtMm(p.w) + '×' + fmtMm(p.h) + ')'
+    b.appendChild(el('span', '', p.name + ' (' + fmtCm(p.w) + '×' + fmtCm(p.h) + ' cm)'
       + (p.pairId ? ' — već u paru' : '')));
     b.addEventListener('click', async () => {
       $('pairModal').hidden = true;
@@ -709,7 +1019,10 @@ function partRow(part) {
   nameInput.addEventListener('change', () => bridge.updatePart(part.id, { name: nameInput.value }).then(refreshParts));
   main.appendChild(nameInput);
   const dims = el('div', 'part-dims');
-  dims.appendChild(document.createTextNode(fmtMm(part.w) + ' × ' + fmtMm(part.h) + ' mm'));
+  dims.appendChild(document.createTextNode(fmtCm(part.w) + ' × ' + fmtCm(part.h) + ' cm'));
+  if (Array.isArray(part.holes) && part.holes.length) {
+    dims.appendChild(document.createTextNode(' · ◻ rupa'));
+  }
   if (part.warnings && part.warnings.length) {
     dims.appendChild(document.createTextNode(' · '));
     const wlink = el('span', 'link', '⚠ ' + part.warnings.length);
@@ -803,18 +1116,76 @@ function partRow(part) {
   en.appendChild(el('span', '', 'Uklj.'));
   row.appendChild(en);
 
-  // Delete (with confirmation - a slip here would lose the drawing)
+  // Rotation lock (global part property - grain direction is a fact of the drawing)
+  const nr = el('label', 'part-field check');
+  nr.title = 'Ne okreći: za brušeni inox/foliju — smjer ostaje kako je nacrtano (dozvoljeno samo 0° i 180°)';
+  const nrIn = document.createElement('input');
+  nrIn.type = 'checkbox';
+  nrIn.checked = !!part.noRotate;
+  nrIn.addEventListener('change', async () => {
+    await bridge.updatePart(part.id, { noRotate: nrIn.checked });
+    await refreshParts();
+    showToast(nrIn.checked ? 'Part se više ne okreće (samo 0°/180°).' : 'Part se opet smije okretati.');
+  });
+  nr.appendChild(nrIn);
+  nr.appendChild(el('span', '', 'Ne okr.'));
+  row.appendChild(nr);
+
+  // Delete - goes to the Kanta for 30 days, so a slip is recoverable.
   const del = el('button', 'btn small danger', '✕');
-  del.title = 'Obriši part';
+  del.title = 'Obriši part (30 dana ostaje u Kanti)';
   del.addEventListener('click', async () => {
-    if (!window.confirm('Obrisati part "' + part.name + '" iz programa?\nOvo briše i njegov DXF iz biblioteke.')) return;
+    if (!window.confirm('Obrisati part "' + part.name + '"?\nOstaje 30 dana u Kanti odakle ga možeš vratiti.')) return;
     await bridge.removePart(part.id);
     await refreshParts();
     await refreshSets();
+    await renderTrash();
   });
   row.appendChild(del);
 
   return row;
+}
+
+// ---------------------------------------------------------------------------
+// Kanta (deleted parts, 30 days)
+// ---------------------------------------------------------------------------
+
+async function renderTrash() {
+  const list = $('trashList');
+  list.innerHTML = '';
+  let items = [];
+  try {
+    items = typeof bridge.listTrash === 'function' ? await bridge.listTrash() : [];
+  } catch (e) {
+    items = [];
+  }
+  if (!items || items.length === 0) {
+    list.appendChild(el('div', 'empty', 'Kanta je prazna.'));
+    return;
+  }
+  for (const it of items) {
+    const row = el('div', 'trash-row');
+    const cv = document.createElement('canvas');
+    cv.width = 64;
+    cv.height = 48;
+    drawOutline(cv, { id: it.id, outline: it.outline, w: it.w, h: it.h }, 4);
+    row.appendChild(cv);
+    row.appendChild(el('div', 'tname', it.name + ' · ' + fmtCm(it.w) + ' × ' + fmtCm(it.h) + ' cm'));
+    row.appendChild(el('div', 'tdate', 'obrisano ' + fmtDate(it.deletedAt)));
+    const back = el('button', 'btn small', '↩ VRATI');
+    back.addEventListener('click', async () => {
+      try {
+        await bridge.restorePart(it.id);
+        await refreshParts();
+        await renderTrash();
+        showToast('Vraćeno iz Kante: ' + it.name);
+      } catch (e) {
+        showToast('Vraćanje nije uspjelo: ' + (e && e.message ? e.message : e));
+      }
+    });
+    row.appendChild(back);
+    list.appendChild(row);
+  }
 }
 
 async function refreshParts() {
@@ -882,12 +1253,16 @@ drop.addEventListener('drop', async (e) => {
 
 function renderSettings() {
   const s = state.settings;
-  $('setGap').value = String(s.gap).replace('.', ',');
-  $('setMargin').value = String(s.margin).replace('.', ',');
-  $('setHistTol').value = String(s.histTol).replace('.', ',');
+  // Lengths are stored in mm, shown and typed in cm.
+  $('setGap').value = fmtCm(s.gap);
+  $('setMargin').value = fmtCm(s.margin);
+  $('setHistTol').value = fmtCm(s.histTol);
+  $('setTabsMax').value = fmtCm(s.tabsMax || 0);
+  $('setSkeletonSpacing').value = fmtCm(s.skeletonSpacing || 400);
   $('setRotate').checked = !!s.allowRotate;
   $('setAutoOpen').checked = !!s.autoOpen;
   $('setFrame').checked = !!s.addFrame;
+  $('setSkeleton').checked = !!s.skeleton;
   $('setScicut').value = s.scicutPath || '';
   $('setOutput').value = s.outputDir || '';
 }
@@ -898,19 +1273,23 @@ async function saveSettings(patch) {
   renderOffers(); // tolerance may have changed
 }
 
-function numSetting(id, key) {
+/** A cm text field bound to a mm setting. */
+function cmSetting(id, key) {
   $(id).addEventListener('change', () => {
     const n = parseNum($(id).value);
-    if (Number.isFinite(n)) saveSettings({ [key]: n });
+    if (Number.isFinite(n) && n >= 0) saveSettings({ [key]: cmToMm(n) });
     else renderSettings();
   });
 }
-numSetting('setGap', 'gap');
-numSetting('setMargin', 'margin');
-numSetting('setHistTol', 'histTol');
+cmSetting('setGap', 'gap');
+cmSetting('setMargin', 'margin');
+cmSetting('setHistTol', 'histTol');
+cmSetting('setTabsMax', 'tabsMax');
+cmSetting('setSkeletonSpacing', 'skeletonSpacing');
 $('setRotate').addEventListener('change', () => saveSettings({ allowRotate: $('setRotate').checked }));
 $('setAutoOpen').addEventListener('change', () => saveSettings({ autoOpen: $('setAutoOpen').checked }));
 $('setFrame').addEventListener('change', () => saveSettings({ addFrame: $('setFrame').checked }));
+$('setSkeleton').addEventListener('change', () => saveSettings({ skeleton: $('setSkeleton').checked }));
 $('setScicut').addEventListener('change', () => saveSettings({ scicutPath: $('setScicut').value }));
 $('setOutput').addEventListener('change', () => saveSettings({ outputDir: $('setOutput').value }));
 $('btnPickExe').addEventListener('click', async () => {
@@ -987,6 +1366,8 @@ async function init() {
   if (typeof bridge.onToast === 'function') bridge.onToast(showToast);
   state.settings = await bridge.getSettings();
   renderSettings();
+  updateZoneUi();
+  renderTrash();
   await refreshParts();
   await refreshSets();
   await refreshHistory();

@@ -157,6 +157,76 @@ function simplifyPolyline(pts, eps) {
   return out;
 }
 
+/** Even-odd point-in-polygon test. `poly` may or may not repeat its first point. */
+function pointInPolygon(x, y, poly) {
+  let inside = false;
+  const n = poly.length;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const [xi, yi] = poly[i];
+    const [xj, yj] = poly[j];
+    if ((yi > y) !== (yj > y)) {
+      const xc = xi + ((y - yi) * (xj - xi)) / (yj - yi);
+      if (x < xc) inside = !inside;
+    }
+  }
+  return inside;
+}
+
+/**
+ * Largest axis-aligned rectangle that fits inside a closed polygon (used to
+ * turn a part's big cut-out into free nesting space). Grid-based: the
+ * polygon is rasterized at ~1/96 of its longer side, the largest all-inside
+ * block is found with the histogram method, and the result is shrunk by one
+ * cell on every side so it is guaranteed to lie inside the true outline.
+ * Returns {x, y, w, h} or null when nothing usable fits.
+ */
+function maxInscribedRect(poly, minSize) {
+  if (!Array.isArray(poly) || poly.length < 3) return null;
+  const bb = bboxOfPoints(poly);
+  if (!(bb.w > 0) || !(bb.h > 0)) return null;
+  const cs = Math.max(bb.w, bb.h) / 96;
+  const cols = Math.max(1, Math.ceil(bb.w / cs));
+  const rows = Math.max(1, Math.ceil(bb.h / cs));
+  const inside = new Uint8Array(cols * rows);
+  for (let r = 0; r < rows; r++) {
+    const y = bb.minY + (r + 0.5) * cs;
+    for (let c = 0; c < cols; c++) {
+      const x = bb.minX + (c + 0.5) * cs;
+      if (pointInPolygon(x, y, poly)) inside[r * cols + c] = 1;
+    }
+  }
+  // Maximal rectangle in a binary matrix via per-row histograms.
+  const heights = new Int32Array(cols);
+  let best = null;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) heights[c] = inside[r * cols + c] ? heights[c] + 1 : 0;
+    const stack = [];
+    for (let c = 0; c <= cols; c++) {
+      const h = c < cols ? heights[c] : 0;
+      let start = c;
+      while (stack.length && stack[stack.length - 1].h >= h) {
+        const top = stack.pop();
+        const area = top.h * (c - top.start);
+        if (!best || area > best.area) {
+          best = { area, c0: top.start, c1: c - 1, r0: r - top.h + 1, r1: r };
+        }
+        start = top.start;
+      }
+      stack.push({ start, h });
+    }
+  }
+  if (!best) return null;
+  // One-cell safety shrink on every side.
+  const x = bb.minX + (best.c0 + 1) * cs;
+  const y = bb.minY + (best.r0 + 1) * cs;
+  const w = (best.c1 - best.c0 - 1) * cs;
+  const h = (best.r1 - best.r0 - 1) * cs;
+  const min = minSize > 0 ? minSize : 0;
+  if (!(w >= min) || !(h >= min) || w <= 0 || h <= 0) return null;
+  const r1 = (n) => Math.round(n * 10) / 10;
+  return { x: r1(x), y: r1(y), w: r1(w), h: r1(h) };
+}
+
 module.exports = {
   rotatePoint,
   rotatePoints,
@@ -166,4 +236,6 @@ module.exports = {
   minAreaRect,
   normDeg,
   simplifyPolyline,
+  pointInPolygon,
+  maxInscribedRect,
 };

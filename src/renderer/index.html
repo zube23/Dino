@@ -24,12 +24,12 @@
         <div id="setBar" class="setbar"></div>
         <div class="dims">
           <label class="dim">
-            <span>DULJINA (mm)</span>
-            <input id="inLen" type="text" inputmode="decimal" placeholder="3000" autocomplete="off">
+            <span>DULJINA (cm)</span>
+            <input id="inLen" type="text" inputmode="decimal" placeholder="300" autocomplete="off">
           </label>
           <label class="dim">
-            <span>ŠIRINA (mm)</span>
-            <input id="inWid" type="text" inputmode="decimal" placeholder="1500" autocomplete="off">
+            <span>ŠIRINA (cm)</span>
+            <input id="inWid" type="text" inputmode="decimal" placeholder="150" autocomplete="off">
           </label>
         </div>
         <button id="btnGenerate" class="generate">GENERIRAJ</button>
@@ -47,10 +47,24 @@
 
       <div id="result" class="result" hidden>
         <canvas id="preview" width="1100" height="560"></canvas>
+        <div id="zoneHint" class="zone-hint" hidden>✏ Povuci mišem pravokutnik na ploči koji laser NE SMIJE dirati — ploča se odmah preslaže oko njega.</div>
+        <div id="whyBox" class="why" hidden></div>
         <div id="stats" class="stats"></div>
         <div class="row">
           <button id="btnOpen" class="btn">OTVORI U CYPCUT</button>
           <button id="btnSave" class="btn ghost">SPREMI DXF…</button>
+          <button id="btnZone" class="btn ghost" title="Označi dio ploče koji se ne smije rezati">✏ ZONA</button>
+          <button id="btnZoneClear" class="btn ghost" hidden>✕ OČISTI ZONU</button>
+          <button id="btnGap" class="btn ghost" title="Koliko komada stane pri drugom razmaku">↔ RAZMAK UŽIVO</button>
+        </div>
+        <div id="gapStrip" class="gap-strip" hidden>
+          <div class="gap-head">
+            <span>RAZMAK UŽIVO</span>
+            <input id="gapRange" type="range" min="0" max="30" step="1">
+            <span id="gapValue" class="gap-value"></span>
+            <button id="btnGapApply" class="btn small">PRIMIJENI I GENERIRAJ</button>
+          </div>
+          <div id="gapRows" class="gap-rows"></div>
         </div>
       </div>
     </div>
@@ -82,9 +96,15 @@
           <div>Način</div>
           <div>Komada</div>
           <div>Uklj.</div>
+          <div title="Ne okreći: za brušeni inox/foliju — smjer ostaje kako je nacrtano">Ne okr.</div>
           <div></div>
         </div>
         <div id="partsList" class="parts"></div>
+      </section>
+
+      <section class="card" id="trashCard">
+        <h2>Kanta — obrisano u zadnjih 30 dana</h2>
+        <div id="trashList" class="trash"></div>
       </section>
 
       <section class="card">
@@ -92,17 +112,27 @@
         <div class="settings-cols">
           <div class="sgroup">
             <h3>Slaganje na ploču</h3>
-            <label>Razmak između partova (mm)
+            <label>Razmak između partova (cm)
               <input id="setGap" type="text" inputmode="decimal">
             </label>
-            <label>Rub ploče (mm)
+            <label>Rub ploče (cm)
               <input id="setMargin" type="text" inputmode="decimal">
             </label>
-            <label>Ponude sličnih ploča — tolerancija (mm)
+            <label>Ponude sličnih ploča — tolerancija (cm)
               <input id="setHistTol" type="text" inputmode="decimal">
             </label>
             <label class="check"><input id="setRotate" type="checkbox"> Dozvoli rotaciju (90°/180°) <em>(zrcaljenje je uvijek zabranjeno)</em></label>
             <label class="check"><input id="setFrame" type="checkbox"> Dodaj okvir ploče u DXF (layer PLOCA)</label>
+          </div>
+          <div class="sgroup">
+            <h3>Rez i kostur</h3>
+            <label>Mikro-mostići na komadima manjim od (cm) <em>0 = isključeno; komad ostane držan u limu s 2–3 mostića od pola milimetra</em>
+              <input id="setTabsMax" type="text" inputmode="decimal">
+            </label>
+            <label class="check"><input id="setSkeleton" type="checkbox"> Reži kostur na trake (layer KOSTUR, reže se zadnje)</label>
+            <label>Razmak linija kostura (cm)
+              <input id="setSkeletonSpacing" type="text" inputmode="decimal">
+            </label>
           </div>
           <div class="sgroup" id="grpLaser">
             <h3>Program lasera</h3>

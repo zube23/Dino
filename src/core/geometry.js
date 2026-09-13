@@ -176,8 +176,8 @@ function pointInPolygon(x, y, poly) {
  * Largest axis-aligned rectangle that fits inside a closed polygon (used to
  * turn a part's big cut-out into free nesting space). Grid-based: the
  * polygon is rasterized at ~1/96 of its longer side, the largest all-inside
- * block is found with the histogram method, and the result is shrunk by one
- * cell on every side so it is guaranteed to lie inside the true outline.
+ * block is found with the histogram method (cells touched by an edge count
+ * as outside), and the result is shrunk by one cell on every side.
  * Returns {x, y, w, h} or null when nothing usable fits.
  */
 function maxInscribedRect(poly, minSize) {
@@ -193,6 +193,23 @@ function maxInscribedRect(poly, minSize) {
     for (let c = 0; c < cols; c++) {
       const x = bb.minX + (c + 0.5) * cs;
       if (pointInPolygon(x, y, poly)) inside[r * cols + c] = 1;
+    }
+  }
+  // Cells crossed by a polygon edge are never inside: a tab or finger
+  // narrower than a cell would otherwise slip between two sample centres.
+  const n = poly.length;
+  const step = cs / 2;
+  for (let i = 0; i < n; i++) {
+    const [x1, y1] = poly[i];
+    const [x2, y2] = poly[(i + 1) % n];
+    const len = Math.hypot(x2 - x1, y2 - y1);
+    const k = Math.max(1, Math.ceil(len / step));
+    for (let j = 0; j <= k; j++) {
+      const x = x1 + ((x2 - x1) * j) / k;
+      const y = y1 + ((y2 - y1) * j) / k;
+      const c = Math.min(cols - 1, Math.max(0, Math.floor((x - bb.minX) / cs)));
+      const r = Math.min(rows - 1, Math.max(0, Math.floor((y - bb.minY) / cs)));
+      inside[r * cols + c] = 0;
     }
   }
   // Maximal rectangle in a binary matrix via per-row histograms.

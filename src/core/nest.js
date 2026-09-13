@@ -162,6 +162,7 @@ class MaxRectsBin {
  *   - noRotate: never turn this part 90 degrees
  *   - holes: part-local rectangles inside big cut-outs, offered as free
  *     space once the part is placed
+ *   - fillSet: a filler from the "fill from another set" pool - placed last
  *
  * @returns {{placements:Array, unplaced:Array, utilization:number,
  *            placedCounts:Object}}
@@ -187,8 +188,12 @@ function nestParts(opts) {
   const bin = new MaxRectsBin(usableW, usableH, heuristic);
   // Keep-out zones ("ne diraj": a scratched corner, a test-cut hole...) are
   // given in sheet coordinates and carved out before anything is placed.
+  // Packer rects carry +gap on their top/right side only, so the zone is
+  // grown by gap on every side to keep a full gap all around it.
   for (const z of blocked) {
-    if (z && z.w > 0 && z.h > 0) bin.block({ x: z.x - margin, y: z.y - margin, w: z.w, h: z.h });
+    if (z && z.w > 0 && z.h > 0) {
+      bin.block({ x: z.x - margin - gap, y: z.y - margin - gap, w: z.w + 2 * gap, h: z.h + 2 * gap });
+    }
   }
   const placements = [];
   const unplaced = [];
@@ -290,8 +295,13 @@ function nestParts(opts) {
     }
   };
 
-  const placeFillers = () => {
-    let fillers = parts.filter((p) => p.mode === 'filler').slice().sort(fillerCmp);
+  // Fill-set parts ("dopuni iz drugog seta") only ever get what is left:
+  // they go last whatever the fill order of the variant.
+  const placeFillers = (which) => {
+    let fillers = parts
+      .filter((p) => p.mode === 'filler' && (which === 'fill' ? !!p.fillSet : !p.fillSet))
+      .slice()
+      .sort(which === 'fill' ? byPriorityThenArea : fillerCmp);
     if (rng) fillers = shuffleWithinPriority(fillers);
     for (const part of fillers) {
       const cap = part.maxCount && part.maxCount > 0 ? Math.floor(part.maxCount) : Infinity;
@@ -308,12 +318,13 @@ function nestParts(opts) {
   };
 
   if (fillersFirst) {
-    placeFillers();
+    placeFillers('own');
     placeFixed();
   } else {
     placeFixed();
-    placeFillers();
+    placeFillers('own');
   }
+  placeFillers('fill');
 
   // Leftover free space in sheet coordinates, sized as the biggest part
   // (without gap) that would still fit there - for the "why didn't it fit"

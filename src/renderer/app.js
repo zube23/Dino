@@ -151,7 +151,16 @@ function turnPoint(part, turn, x, y) {
 
 function placementPolys(pl) {
   const part = state.partsById[pl.id];
-  if (!part || !part.outline) return null;
+  if (!part) return null;
+  // Exact placement transform from the drawing's own outline - immune to a
+  // later rotation-lock toggle changing the part's pre-rotated outline.
+  if (Array.isArray(part.outlineRaw) && Number.isFinite(pl.rotDeg) && Number.isFinite(pl.dx) && Number.isFinite(pl.dy)) {
+    const a = (pl.rotDeg * Math.PI) / 180;
+    const c = Math.cos(a);
+    const sn = Math.sin(a);
+    return part.outlineRaw.map((poly) => poly.map(([x, y]) => [x * c - y * sn + pl.dx, x * sn + y * c + pl.dy]));
+  }
+  if (!part.outline) return null;
   const turn = turnOf(pl);
   const polys = [];
   for (const poly of part.outline) {
@@ -713,6 +722,12 @@ function gapContext() {
   const entry = selectedEntry();
   const dims = typedDims() || (entry ? { len: entry.height, wid: entry.width } : null);
   if (!dims) return null;
+  // Same rule as generate(): a zone belongs to one sheet size.
+  if (state.zone && (state.zone.sheetW !== dims.wid || state.zone.sheetH !== dims.len)) {
+    state.zone = null;
+    updateZoneUi();
+    showToast('Zona je vrijedila za drugu veličinu ploče — maknuta je.');
+  }
   return {
     width: dims.wid,
     height: dims.len,

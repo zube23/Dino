@@ -32,7 +32,7 @@ const DEFAULT_SETTINGS = {
   allowRotate: true,
   autoOpen: false, // odmah otvori generiranu ploču u CypCut-u
   addFrame: false, // dodaj okvir ploče u DXF (layer PLOCA)
-  tabsMax: 30,     // mikro-mostići na komadima manjim od (mm); 0 = isključeno
+  tabsMax: 0,      // mikro-mostići na komadima manjim od (mm); 0 = isključeno (opt-in)
   skeleton: false, // linije za rezanje kostura
   skeletonSpacing: 400, // razmak tih linija (mm)
   scicutPath: '',  // putanja do CypCut/SciCut .exe (prazno = zadana aplikacija)
@@ -200,6 +200,7 @@ function materializeSheet(entry) {
     addFrame: !!entry.addFrame,
     extraLines: entry.extraLines || [],
     tabsMax: entry.tabsMax || 0,
+    tabbed: Array.isArray(entry.tabbed) ? entry.tabbed : null,
   });
   fs.writeFileSync(file, dxf, 'utf8');
   return file;
@@ -286,6 +287,7 @@ ipcMain.handle('parts:add', (ev, files) => {
         h: Math.round(info.h * 1000) / 1000,
         area: Math.round(info.area * 1000) / 1000,
         outline: info.outline,
+        outlineRaw: info.outlineRaw,
         texts: info.texts,
         holes: info.holes,
         warnings: info.warnings,
@@ -313,6 +315,7 @@ function reanalyzeEntry(entry) {
   entry.h = Math.round(info.h * 1000) / 1000;
   entry.area = Math.round(info.area * 1000) / 1000;
   entry.outline = info.outline;
+  entry.outlineRaw = info.outlineRaw;
   entry.texts = info.texts;
   entry.holes = info.holes;
   entry.warnings = info.warnings;
@@ -334,6 +337,7 @@ function applyPartPatch(entry, patch) {
         entry.noRotate = next;
         reanalyzeEntry(entry);
       }
+      changed.noRotate = entry.noRotate; // the pair shares the grain direction
     } else {
       const n = Math.floor(Number(v));
       if (k === 'priority') entry.priority = Math.min(99, Math.max(1, Number.isFinite(n) ? n : 5));
@@ -351,10 +355,15 @@ ipcMain.handle('parts:update', (ev, id, patch) => {
   const entry = lib.parts.find((p) => p.id === id);
   if (!entry) throw new Error('Part ne postoji.');
   const mirrored = applyPartPatch(entry, patch);
-  // Paired parts share priority/mode/count so the pair stays consistent.
+  // Paired parts share priority/mode/count (and the rotation lock) so the
+  // pair stays consistent.
   if (entry.pairId && Object.keys(mirrored).length > 0) {
     const partner = lib.parts.find((p) => p.id === entry.pairId);
-    if (partner) Object.assign(partner, mirrored);
+    if (partner) {
+      const lockChanged = 'noRotate' in mirrored && !!partner.noRotate !== !!mirrored.noRotate;
+      Object.assign(partner, mirrored);
+      if (lockChanged) reanalyzeEntry(partner);
+    }
   }
   writeJson(libraryFile(), lib);
   return entry;
@@ -383,6 +392,10 @@ ipcMain.handle('parts:pair', (ev, idA, idB) => {
     b.pairId = a.id;
     // The pair shares settings - take them from the part being linked.
     for (const k of PAIR_MIRRORED) b[k] = a[k];
+    if (!!b.noRotate !== !!a.noRotate) {
+      b.noRotate = !!a.noRotate;
+      reanalyzeEntry(b);
+    }
   }
   writeJson(libraryFile(), lib);
   return lib.parts;
@@ -741,6 +754,7 @@ ipcMain.handle('nest:generate', async (ev, req) => {
       zone: zone || null,
       extraLines: result.extraLines || [],
       tabsMax: result.tabsMax || 0,
+      tabbed: result.tabbed || [],
       freeRects: (result.freeRects || []).slice(0, 8),
       hint: result.hint || null,
     });

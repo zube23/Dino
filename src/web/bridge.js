@@ -33,7 +33,7 @@
 
   const DEFAULT_SETTINGS = {
     gap: 8, margin: 10, histTol: 20, allowRotate: true, autoOpen: false,
-    addFrame: false, tabsMax: 30, skeleton: false, skeletonSpacing: 400,
+    addFrame: false, tabsMax: 0, skeleton: false, skeletonSpacing: 400,
     scicutPath: '', outputDir: '',
   };
   const NUMERIC_SETTINGS = { gap: 100, margin: 100, histTol: 500, tabsMax: 500, skeletonSpacing: 5000 };
@@ -51,6 +51,7 @@
     entry.h = Math.round(info.h * 1000) / 1000;
     entry.area = Math.round(info.area * 1000) / 1000;
     entry.outline = info.outline;
+    entry.outlineRaw = info.outlineRaw;
     entry.texts = info.texts;
     entry.holes = info.holes;
     entry.warnings = info.warnings;
@@ -89,6 +90,7 @@
       h: Math.round(info.h * 1000) / 1000,
       area: Math.round(info.area * 1000) / 1000,
       outline: info.outline,
+      outlineRaw: info.outlineRaw,
       texts: info.texts,
       holes: info.holes,
       warnings: info.warnings,
@@ -162,6 +164,7 @@
       addFrame: !!entry.addFrame,
       extraLines: entry.extraLines || [],
       tabsMax: entry.tabsMax || 0,
+      tabbed: Array.isArray(entry.tabbed) ? entry.tabbed : null,
     });
   }
 
@@ -280,6 +283,7 @@
             entry.noRotate = next;
             reanalyzeEntry(entry);
           }
+          mirrored.noRotate = entry.noRotate;
         } else if (k === 'priority' || k === 'count' || k === 'maxCount') {
           const n = Math.floor(Number(v));
           if (k === 'priority') entry.priority = Math.min(99, Math.max(1, Number.isFinite(n) ? n : 5));
@@ -290,7 +294,11 @@
       }
       if (entry.pairId && Object.keys(mirrored).length > 0) {
         const partner = lib.find((p) => p.id === entry.pairId);
-        if (partner) Object.assign(partner, mirrored);
+        if (partner) {
+          const lockChanged = 'noRotate' in mirrored && !!partner.noRotate !== !!mirrored.noRotate;
+          Object.assign(partner, mirrored);
+          if (lockChanged) reanalyzeEntry(partner);
+        }
       }
       store('library', lib);
       return pub(entry);
@@ -315,6 +323,10 @@
         a.pairId = b.id;
         b.pairId = a.id;
         for (const k of PAIR_MIRRORED) b[k] = a[k];
+        if (!!b.noRotate !== !!a.noRotate) {
+          b.noRotate = !!a.noRotate;
+          reanalyzeEntry(b);
+        }
       }
       store('library', lib);
       return lib.map(pub);
@@ -552,6 +564,7 @@
           zone: zone || null,
           extraLines: result.extraLines || [],
           tabsMax: result.tabsMax || 0,
+          tabbed: result.tabbed || [],
           freeRects: (result.freeRects || []).slice(0, 8),
           hint: result.hint || null,
         });

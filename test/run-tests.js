@@ -11,7 +11,7 @@ const {
 const { MaxRectsBin, nestParts } = require('../src/core/nest');
 const {
   analyzePart, generateSheet, generateVariants, generateDense, generateKnap,
-  generateAll, buildSheetDxf, buildUnits, applySet,
+  generateAll, buildSheetDxf, buildUnits, applySet, gapSweep, applyTabs, chainLoops,
 } = require('../src/core/parts');
 const { bestDuoLayout } = require('../src/core/pair');
 
@@ -1177,7 +1177,7 @@ const unplacedSum = (res) => (res.unplaced || []).reduce((n, u) => n + (u.count 
     knap.knapDims && knap.knapDims.width === 1005 && knap.knapDims.height === 1005,
     JSON.stringify(knap.knapDims));
   check('knap: everything placed', knap.totalPlaced === 1 && knap.unplaced.length === 0);
-  check('knap: label says +5 mm', /\+5 mm/.test(knap.variantLabel), knap.variantLabel);
+  check('knap: label says +0,5 cm', /\+0,5 cm/.test(knap.variantLabel), knap.variantLabel);
 
   // The user's limit is a hard cap: with max +4mm nothing helps.
   const none = generateAll(opts, { knapMax: 4 });
@@ -1300,6 +1300,333 @@ const unplacedSum = (res) => (res.unplaced || []).reduce((n, u) => n + (u.count 
   check('knap-order: bump within the +10 limit',
     !!knap && knap.knapBump.w <= 10 && knap.knapBump.h <= 10,
     knap && JSON.stringify(knap.knapBump));
+}
+
+// ---------------------------------------------------------------------------
+// v1.5: holes, keep-out zone, rotation lock, why-not, gap sweep, skeleton,
+// micro-tabs, fill set
+// ---------------------------------------------------------------------------
+
+const rectDxfOf = (w, h) => writeDxf([{
+  type: 'POLYLINE', layer: '0', closed: true,
+  verts: [{ x: 0, y: 0, bulge: 0 }, { x: w, y: 0, bulge: 0 }, { x: w, y: h, bulge: 0 }, { x: 0, y: h, bulge: 0 }],
+}]);
+const mkGeo = (id, dxf, extra, aopts) => {
+  const i = analyzePart(dxf, aopts);
+  return mkPart(id, i, dxf, { holes: i.holes, ...extra });
+};
+
+{
+  // Nest-in-holes: a ring's window becomes free space for small parts.
+  const ringDxf = writeDxf([
+    { type: 'CIRCLE', layer: '0', cx: 0, cy: 0, r: 100 },
+    { type: 'CIRCLE', layer: '0', cx: 0, cy: 0, r: 60 },
+  ]);
+  const ring = mkGeo('ring', ringDxf, { priority: 1, count: 1 });
+  check('holes: ring window detected', ring.holes.length === 1
+    && ring.holes[0].w >= 78 && ring.holes[0].w <= 85 && ring.holes[0].h >= 78 && ring.holes[0].h <= 85,
+    JSON.stringify(ring.holes));
+  const small = mkGeo('small', rectDxfOf(30, 30), { mode: 'filler', count: 0, maxCount: 0 });
+  const res = generateSheet({ sheetW: 230, sheetH: 230, margin: 10, gap: 5, parts: [ring, small] });
+  const smalls = res.placements.filter((p) => p.id === 'small');
+  const inside = smalls.filter((p) => p.x > 20 && p.x + p.w < 200 && p.y > 20 && p.y + p.h < 200);
+  check('holes: small parts land inside the ring', smalls.length >= 4 && inside.length === smalls.length,
+    'smalls=' + smalls.length + ' inside=' + inside.length);
+  const rebuilt = buildSheetDxf({ parts: [ring, small], placements: res.placements, sheetW: 230, sheetH: 230 });
+  check('holes: rebuild identical', rebuilt === res.dxf);
+
+  // Closed engraving geometry is solid metal, never a hole.
+  const engraved = writeDxf([
+    { type: 'POLYLINE', layer: '0', closed: true, verts: [{ x: 0, y: 0, bulge: 0 }, { x: 150, y: 0, bulge: 0 }, { x: 150, y: 150, bulge: 0 }, { x: 0, y: 150, bulge: 0 }] },
+    { type: 'POLYLINE', layer: 'GRAVURA', closed: true, verts: [{ x: 30, y: 30, bulge: 0 }, { x: 120, y: 30, bulge: 0 }, { x: 120, y: 120, bulge: 0 }, { x: 30, y: 120, bulge: 0 }] },
+  ]);
+  check('holes: engraving loop ignored', analyzePart(engraved).holes.length === 0);
+  check('holes: Croatian TEKST layer ignored', analyzePart(engraved.replace(/GRAVURA/g, 'TEKST')).holes.length === 0);
+  check('holes: unknown layer differs from the body - not a hole', analyzePart(engraved.replace(/GRAVURA/g, 'X7')).holes.length === 0);
+  check('holes: same-layer cut loop counts', analyzePart(engraved.replace(/GRAVURA/g, '0')).holes.length === 1);
+
+  // Even-odd depth: window (depth 1) holding an island (depth 2) - the
+  // window is occupied and the island is solid, so nothing is seeded.
+  const nested = writeDxf([
+    { type: 'CIRCLE', layer: '0', cx: 0, cy: 0, r: 100 },
+    { type: 'CIRCLE', layer: '0', cx: 0, cy: 0, r: 70 },
+    { type: 'CIRCLE', layer: '0', cx: 0, cy: 0, r: 40 },
+  ]);
+  check('holes: island inside a window is solid', analyzePart(nested).holes.length === 0, JSON.stringify(analyzePart(nested).holes));
+  const framePlate = writeDxf([
+    { type: 'POLYLINE', layer: '0', closed: true, verts: [{ x: 0, y: 0, bulge: 0 }, { x: 300, y: 0, bulge: 0 }, { x: 300, y: 300, bulge: 0 }, { x: 0, y: 300, bulge: 0 }] },
+    { type: 'POLYLINE', layer: '0', closed: true, verts: [{ x: 40, y: 40, bulge: 0 }, { x: 260, y: 40, bulge: 0 }, { x: 260, y: 260, bulge: 0 }, { x: 40, y: 260, bulge: 0 }] },
+    { type: 'POLYLINE', layer: '0', closed: true, verts: [{ x: 60, y: 60, bulge: 0 }, { x: 240, y: 60, bulge: 0 }, { x: 240, y: 240, bulge: 0 }, { x: 60, y: 240, bulge: 0 }] },
+  ]);
+  check('holes: pre-nested plate in a window is solid', analyzePart(framePlate).holes.length === 0);
+  // A body drawn as a LINE chain inside a window counts as occupancy too.
+  const lineBody = writeDxf([
+    { type: 'POLYLINE', layer: '0', closed: true, verts: [{ x: 0, y: 0, bulge: 0 }, { x: 300, y: 0, bulge: 0 }, { x: 300, y: 300, bulge: 0 }, { x: 0, y: 300, bulge: 0 }] },
+    { type: 'CIRCLE', layer: '0', cx: 150, cy: 150, r: 100 },
+    { type: 'LINE', layer: '0', x1: 100, y1: 100, x2: 200, y2: 100 },
+    { type: 'LINE', layer: '0', x1: 200, y1: 100, x2: 200, y2: 200 },
+    { type: 'LINE', layer: '0', x1: 200, y1: 200, x2: 100, y2: 200 },
+    { type: 'LINE', layer: '0', x1: 100, y1: 200, x2: 100, y2: 100 },
+  ]);
+  check('holes: line-chain body inside a window blocks it', analyzePart(lineBody).holes.length === 0);
+  // An engraved logo BLOCK inserted on an engraving layer keeps that layer.
+  const insertDxf = ['0', 'SECTION', '2', 'BLOCKS', '0', 'BLOCK', '8', '0', '2', 'LOGO', '70', '0', '10', '0', '20', '0',
+    '0', 'LWPOLYLINE', '8', '0', '90', '4', '70', '1', '10', '0', '20', '0', '10', '80', '20', '0', '10', '80', '20', '60', '10', '0', '20', '60',
+    '0', 'ENDBLK', '8', '0', '0', 'ENDSEC',
+    '0', 'SECTION', '2', 'ENTITIES',
+    '0', 'LWPOLYLINE', '8', '0', '90', '4', '70', '1', '10', '0', '20', '0', '10', '200', '20', '0', '10', '200', '20', '100', '10', '0', '20', '100',
+    '0', 'INSERT', '8', 'GRAVURA', '2', 'LOGO', '10', '60', '20', '20',
+    '0', 'ENDSEC', '0', 'EOF'].join('\n');
+  const ins = parseDxf(insertDxf);
+  check('holes: block on layer 0 inherits the INSERT layer', ins.entities.length === 2
+    && ins.entities.some((e) => e.layer === 'GRAVURA'), JSON.stringify(ins.entities.map((e) => e.layer)));
+  check('holes: engraved logo block is not a hole', analyzePart(insertDxf).holes.length === 0);
+  // Thin intrusions never end up inside the seeded rectangle.
+  const { maxInscribedRect } = require('../src/core/geometry');
+  const tabbedWindow = [[0, 0], [98.5, 0], [98.5, 40], [101.5, 40], [101.5, 0], [320, 0], [320, 200], [0, 200], [0, 0]];
+  const ir = maxInscribedRect(tabbedWindow, 30);
+  check('holes: inscribed rect avoids a 3 mm finger', !!ir && !(ir.x < 101.5 && ir.x + ir.w > 98.5 && ir.y < 40), JSON.stringify(ir));
+  check('outlineRaw: drawing-space outline stored', Array.isArray(analyzePart(rectDxfOf(50, 20)).outlineRaw));
+}
+
+{
+  // Keep-out zone: nothing lands on the blocked half.
+  const sq = mkGeo('sq', rectDxfOf(90, 90), { mode: 'filler', count: 0, maxCount: 0 });
+  const opts = { sheetW: 400, sheetH: 200, margin: 0, gap: 0, parts: [sq], blocked: [{ x: 0, y: 0, w: 200, h: 200 }] };
+  const res = generateSheet(opts);
+  check('zone: placements avoid the zone', res.totalPlaced === 4 && res.placements.every((p) => p.x >= 200),
+    JSON.stringify(res.placements.map((p) => [p.x, p.y])));
+  const all = generateAll(opts, {});
+  check('zone: all variants respect it', all.length > 0
+    && all.every((v) => v.placements.every((p) => p.x >= 200 - 1e-6)));
+  const free = generateSheet({ sheetW: 300, sheetH: 200, margin: 0, gap: 0, parts: [mkGeo('one', rectDxfOf(100, 100), { count: 1 })] });
+  check('freeRects: largest leftover reported', free.freeRects.length > 0
+    && Math.round(free.freeRects[0].w * free.freeRects[0].h) === 40000, JSON.stringify(free.freeRects[0]));
+}
+
+{
+  // Rotation lock: no tightest-box pre-rotation and no 90-degree turn.
+  const tilted = writeDxf([{
+    type: 'POLYLINE', layer: '0', closed: true,
+    verts: [[0, 0], [100, 0], [100, 20], [0, 20]].map(([x, y]) => {
+      const a = Math.PI / 6;
+      return { x: x * Math.cos(a) - y * Math.sin(a), y: x * Math.sin(a) + y * Math.cos(a), bulge: 0 };
+    }),
+  }]);
+  const freeInfo = analyzePart(tilted);
+  const lockInfo = analyzePart(tilted, { lockRotation: true });
+  check('lock: free analysis finds the tight box', Math.abs(freeInfo.w - 100) < 0.5 || Math.abs(freeInfo.h - 100) < 0.5,
+    freeInfo.w + 'x' + freeInfo.h);
+  check('lock: locked analysis keeps the drawing as is', lockInfo.preRotDeg === 0 && lockInfo.w > 90 && lockInfo.h > 60,
+    lockInfo.w + 'x' + lockInfo.h);
+  const bar = mkGeo('bar', rectDxfOf(100, 20), { noRotate: true }, { lockRotation: true });
+  const locked = generateSheet({ sheetW: 30, sheetH: 120, margin: 0, gap: 0, parts: [bar] });
+  const loose = generateSheet({ sheetW: 30, sheetH: 120, margin: 0, gap: 0, parts: [{ ...bar, noRotate: false }] });
+  check('lock: locked part is not turned', locked.totalPlaced === 0 && loose.totalPlaced === 1);
+  // Duo units inherit the lock from any member.
+  const { units } = buildUnits([bar, { ...mkGeo('mate', rectDxfOf(100, 20), {}), pairId: 'bar' }, ].map((p) => (p.id === 'bar' ? { ...p, pairId: 'mate' } : p)), 5);
+  check('lock: duo unit locked when a member is', units.every((u) => u.noRotate === true), JSON.stringify(units.map((u) => [u.uid, u.noRotate])));
+}
+
+{
+  // Why-not hint + gap sweep on a sheet that misses by a millimetre.
+  const parts = [mkGeo('a', rectDxfOf(95, 95), { priority: 1, count: 5 })];
+  const opts = { sheetW: 300, sheetH: 200, margin: 0, gap: 8, parts };
+  const rows = gapSweep(opts, [8, 5]);
+  check('gap sweep: counts per gap', rows.length === 2 && rows[0].placed === 4 && rows[1].placed === 5, JSON.stringify(rows));
+  const all = generateAll(opts, {});
+  const hint = all[0].hint;
+  check('why-not: hint present', !!hint && hint.partName === 'a', JSON.stringify(hint));
+  check('why-not: free hole and shortfall', !!hint && hint.free && hint.free.w === 94 && hint.missing === 1, JSON.stringify(hint));
+  check('why-not: smaller gap suggested', !!hint && hint.betterGap && hint.betterGap.gap === 7 && hint.betterGap.extra === 1,
+    JSON.stringify(hint && hint.betterGap));
+  check('why-not: none when everything fits', generateAll({ ...opts, gap: 2 }, {})[0].hint === undefined
+    || generateAll({ ...opts, gap: 2 }, {})[0].hint === null);
+}
+
+{
+  // Skeleton chop lines: only through free space, on their own layer,
+  // reproduced byte-identically from the stored entry.
+  const one = mkGeo('one', rectDxfOf(100, 100), { count: 1, priority: 1 });
+  const opts = { sheetW: 1000, sheetH: 600, margin: 10, gap: 5, parts: [one], skeleton: { spacing: 300 } };
+  const res = generateSheet(opts);
+  check('skeleton: lines produced', res.extraLines.length >= 3, 'lines=' + res.extraLines.length);
+  let cross = 0;
+  for (const ln of res.extraLines) {
+    for (const p of res.placements) {
+      const v = ln.x1 === ln.x2;
+      if (v && ln.x1 > p.x - 2 && ln.x1 < p.x + p.w + 2 && Math.max(ln.y1, p.y - 2) < Math.min(ln.y2, p.y + p.h + 2)) cross++;
+      if (!v && ln.y1 > p.y - 2 && ln.y1 < p.y + p.h + 2 && Math.max(ln.x1, p.x - 2) < Math.min(ln.x2, p.x + p.w + 2)) cross++;
+    }
+  }
+  check('skeleton: lines never touch parts', cross === 0, 'violations=' + cross);
+  check('skeleton: lines run edge to edge', res.extraLines.some((ln) => ln.y1 === 0 && ln.y2 === 600)
+    && res.extraLines.every((ln) => ln.x1 >= 0 && ln.x2 <= 1000 && ln.y1 >= 0 && ln.y2 <= 600));
+  check('skeleton: KOSTUR layer in DXF', res.dxf.indexOf('KOSTUR') !== -1);
+  const rebuilt = buildSheetDxf({ parts: [one], placements: res.placements, sheetW: 1000, sheetH: 600, extraLines: res.extraLines });
+  check('skeleton: rebuild identical', rebuilt === res.dxf);
+  const zoned = generateSheet({ ...opts, blocked: [{ x: 500, y: 0, w: 500, h: 600 }] });
+  check('skeleton: lines avoid the keep-out zone', zoned.extraLines.every((ln) => ln.x1 <= 500 && ln.x2 <= 500),
+    JSON.stringify(zoned.extraLines.slice(0, 4)));
+}
+
+{
+  // Micro-tabs: outer contour split into 2-3 open runs, holes untouched.
+  const sqEnt = parseDxf(writeDxf([
+    { type: 'POLYLINE', layer: '0', closed: true, verts: [{ x: 0, y: 0, bulge: 0 }, { x: 40, y: 0, bulge: 0 }, { x: 40, y: 40, bulge: 0 }, { x: 0, y: 40, bulge: 0 }] },
+    { type: 'CIRCLE', layer: '0', cx: 20, cy: 20, r: 5 },
+  ])).entities;
+  const t = applyTabs(sqEnt, 0.5);
+  const pieces = t.entities.filter((e) => e.type === 'POLYLINE');
+  const cut = pieces.reduce((n, p) => {
+    let L = 0;
+    for (let i = 1; i < p.verts.length; i++) L += Math.hypot(p.verts[i].x - p.verts[i - 1].x, p.verts[i].y - p.verts[i - 1].y);
+    return n + L;
+  }, 0);
+  check('tabs: square split into 2 open runs', t.applied && pieces.length === 2 && pieces.every((p) => !p.closed));
+  check('tabs: hole kept, 1.0 mm left uncut', t.entities.some((e) => e.type === 'CIRCLE') && Math.abs(cut - 159) < 0.01, 'cut=' + cut.toFixed(3));
+  // every run vertex lies on the square's boundary
+  const onEdge = pieces.every((p) => p.verts.every((v) => Math.abs(v.x) < 1e-6 || Math.abs(v.x - 40) < 1e-6 || Math.abs(v.y) < 1e-6 || Math.abs(v.y - 40) < 1e-6));
+  check('tabs: runs stay on the contour', onEdge);
+  // Chained lines + arcs in shuffled order still form one loop.
+  const r = 5; const W = 60; const H = 30;
+  const rr = [
+    { type: 'LINE', layer: '0', x1: r, y1: 0, x2: W - r, y2: 0 }, { type: 'ARC', layer: '0', cx: W - r, cy: r, r, a1: 270, a2: 360 },
+    { type: 'LINE', layer: '0', x1: W, y1: r, x2: W, y2: H - r }, { type: 'ARC', layer: '0', cx: W - r, cy: H - r, r, a1: 0, a2: 90 },
+    { type: 'LINE', layer: '0', x1: W - r, y1: H, x2: r, y2: H }, { type: 'ARC', layer: '0', cx: r, cy: H - r, r, a1: 90, a2: 180 },
+    { type: 'LINE', layer: '0', x1: 0, y1: H - r, x2: 0, y2: r }, { type: 'ARC', layer: '0', cx: r, cy: r, r, a1: 180, a2: 270 },
+  ];
+  const shuffled = [rr[3], rr[0], rr[6], rr[2], rr[5], rr[1], rr[7], rr[4]];
+  const loops = chainLoops(shuffled);
+  check('tabs: chained loop from 8 entities', loops.length === 1 && loops[0].members.length === 8);
+  check('tabs: chained contour gets tabs', applyTabs(shuffled, 0.5).applied);
+  check('tabs: circle gets tabs', applyTabs(parseDxf(writeDxf([{ type: 'CIRCLE', layer: '0', cx: 0, cy: 0, r: 10 }])).entities, 0.5).applied);
+  // Threshold: only parts up to tabsMax are tabbed; regeneration identical.
+  const small = mkGeo('small', rectDxfOf(20, 20), { mode: 'filler', count: 0, maxCount: 0 });
+  const big = mkGeo('big', rectDxfOf(100, 100), { priority: 1, count: 1 });
+  const res = generateSheet({ sheetW: 200, sheetH: 200, margin: 5, gap: 4, parts: [big, small], tabsMax: 30 });
+  check('tabs: only small parts noted', res.notes.some((n) => n.indexOf('small') !== -1) && !res.notes.some((n) => n.indexOf('big') !== -1),
+    JSON.stringify(res.notes));
+  const rebuilt = buildSheetDxf({ parts: [big, small], placements: res.placements, sheetW: 200, sheetH: 200, tabsMax: res.tabsMax });
+  check('tabs: rebuild identical', rebuilt === res.dxf);
+  check('tabs: off when tabsMax is 0', generateSheet({ sheetW: 200, sheetH: 200, margin: 5, gap: 4, parts: [big, small] }).notes.length === 0);
+}
+
+{
+  // Fill from another set: fillers only, ranked after the active selection.
+  const lib = [
+    { ...mkGeo('x', rectDxfOf(50, 50), {}), enabled: true },
+    { ...mkGeo('y', rectDxfOf(30, 30), {}), enabled: true },
+    { ...mkGeo('z', rectDxfOf(20, 20), {}), enabled: true },
+  ];
+  const setA = { id: 'A', items: { x: { priority: 1, mode: 'fixed', count: 2 } } };
+  const setB = { id: 'B', items: { y: { priority: 1, mode: 'fixed', count: 9 }, z: { priority: 2, mode: 'filler', maxCount: 3 } } };
+  const eff = applySet(lib, setA, setB);
+  const y = eff.find((p) => p.id === 'y');
+  const z = eff.find((p) => p.id === 'z');
+  check('fill set: fill parts are fillers after the set', eff.length === 3 && y && y.mode === 'filler' && y.count === 0
+    && y.priority > 1 && z.priority > y.priority && z.maxCount === 3 && y.fromFillSet === true,
+    JSON.stringify(eff.map((p) => [p.id, p.mode, p.priority])));
+  check('fill set: same set as fill is ignored', applySet(lib, setA, setA).length === 1);
+  const paired = lib.map((p) => (p.id === 'x' ? { ...p, pairId: 'y' } : (p.id === 'y' ? { ...p, pairId: 'x' } : p)));
+  check('fill set: partner already in the set is not doubled', applySet(paired, setA, setB).every((p) => p.id !== 'y'));
+  check('fill set: SVI + fill works', applySet(lib.map((p) => ({ ...p, enabled: p.id === 'x' })), null, setB).length === 3);
+}
+
+{
+  // v1.5.0 review fixes
+  // Keep-out zone keeps a full gap on every side.
+  const z = nestParts({
+    sheetW: 300, sheetH: 100, margin: 0, gap: 10, blocked: [{ x: 100, y: 0, w: 100, h: 100 }],
+    parts: [{ id: 'p', w: 80, h: 80, area: 6400, priority: 1, mode: 'filler', count: 0, maxCount: 0 }],
+  });
+  check('zone: full gap on both sides', z.placements.length === 2
+    && z.placements.every((p) => p.x + p.w <= 90 + 1e-6 || p.x >= 210 - 1e-6), JSON.stringify(z.placements.map((p) => p.x)));
+
+  // Fill-set fillers are placed last whatever the fill order.
+  const big = nestParts({
+    sheetW: 200, sheetH: 200, margin: 0, gap: 0, order: 'big',
+    parts: [
+      { id: 'own', w: 40, h: 40, area: 1600, priority: 5, mode: 'filler', count: 0, maxCount: 0 },
+      { id: 'fill', w: 200, h: 200, area: 40000, priority: 9, mode: 'filler', count: 0, maxCount: 0, fillSet: true },
+    ],
+  });
+  check('fill set: own fillers first even in KRUPNO', big.placedCounts.own === 25 && !big.placedCounts.fill, JSON.stringify(big.placedCounts));
+  const lib = [
+    { ...mkGeo('x', rectDxfOf(50, 50), {}), enabled: true },
+    { ...mkGeo('y', rectDxfOf(30, 30), {}), enabled: true },
+    { ...mkGeo('z', rectDxfOf(20, 20), {}), enabled: true },
+  ];
+  const setA = { id: 'A', items: { x: { priority: 1, mode: 'fixed', count: 2 } } };
+  const setB = { id: 'B', items: { y: { priority: 1, mode: 'fixed', count: 10 }, z: { priority: 2, mode: 'fixed', count: 0 } } };
+  const eff = applySet(lib, setA, setB);
+  check('fill set: fixed x10 caps at 10, fixed x0 is dropped',
+    eff.length === 2 && eff.find((p) => p.id === 'y').maxCount === 10 && !eff.some((p) => p.id === 'z'),
+    JSON.stringify(eff.map((p) => [p.id, p.maxCount])));
+  const sheetB = generateSheet({ sheetW: 400, sheetH: 400, margin: 0, gap: 0, parts: eff });
+  check('fill set: capped and labelled in the summary', sheetB.placedCounts.y === 10
+    && sheetB.summary.some((r) => r.name === 'y (dopuna)'), JSON.stringify(sheetB.summary));
+
+  // Why-not respects the rotation lock.
+  const bar = mkGeo('bar', rectDxfOf(100, 40), { noRotate: true, count: 1, priority: 1 }, { lockRotation: true });
+  const hint = generateAll({ sheetW: 60, sheetH: 150, margin: 0, gap: 0, parts: [bar] }, {});
+  check('why-not: locked part reports its real shortfall', hint.length === 0
+    || (hint[0].hint && hint[0].hint.missing === 40), JSON.stringify(hint.map((v) => v.hint)));
+  const lockedRes = generateSheet({ sheetW: 60, sheetH: 150, margin: 0, gap: 0, parts: [bar] });
+  const { whyNotHint } = require('../src/core/parts');
+  const h2 = whyNotHint(lockedRes, { sheetW: 60, sheetH: 150, margin: 0, gap: 0, parts: [bar] });
+  check('why-not: no turned candidate when locked', !!h2 && h2.missing === 40, JSON.stringify(h2));
+
+  // Tabs: outer contours in every common encoding.
+  const closedFlag0 = [
+    { type: 'POLYLINE', layer: '0', closed: false, verts: [{ x: 0, y: 0, bulge: 0 }, { x: 40, y: 0, bulge: 0 }, { x: 40, y: 40, bulge: 0 }, { x: 0, y: 40, bulge: 0 }, { x: 0, y: 0, bulge: 0 }] },
+    { type: 'CIRCLE', layer: '0', cx: 20, cy: 20, r: 5 },
+  ];
+  const t0 = applyTabs(closedFlag0, 0.5);
+  check('tabs: closed-flag-0 polyline outer is tabbed, hole kept', t0.applied
+    && t0.entities.some((e) => e.type === 'CIRCLE') && t0.entities.filter((e) => e.type === 'POLYLINE').every((e) => !e.closed));
+  const bulgeCircle = [{ type: 'POLYLINE', layer: '0', closed: true, verts: [{ x: 0, y: 0, bulge: 1 }, { x: 20, y: 0, bulge: 1 }] }];
+  check('tabs: 2-vertex bulge circle is tabbed', applyTabs(bulgeCircle, 0.5).applied
+    && applyTabs(bulgeCircle, 0.5).entities.every((e) => !e.closed));
+  check('tabs: ARC 0..360 is tabbed', applyTabs([{ type: 'ARC', layer: '0', cx: 0, cy: 0, r: 10, a1: 0, a2: 360 }], 0.5).applied);
+  const square4 = [
+    { type: 'LINE', layer: '0', x1: 0, y1: 0, x2: 15, y2: 15 }, // stray bend line first
+    { type: 'LINE', layer: '0', x1: 0, y1: 0, x2: 40, y2: 0 },
+    { type: 'LINE', layer: '0', x1: 40, y1: 0, x2: 40, y2: 40 },
+    { type: 'LINE', layer: '0', x1: 40, y1: 40, x2: 0, y2: 40 },
+    { type: 'LINE', layer: '0', x1: 0, y1: 40, x2: 0, y2: 0 },
+  ];
+  const t4 = applyTabs(square4, 0.5);
+  const onEdge4 = t4.entities.filter((e) => e.type === 'POLYLINE').every((p) => p.verts.every((v) => Math.abs(v.x) < 1e-6 || Math.abs(v.x - 40) < 1e-6 || Math.abs(v.y) < 1e-6 || Math.abs(v.y - 40) < 1e-6));
+  check('tabs: stray line does not hijack the contour', t4.applied && onEdge4 && t4.entities.some((e) => e.type === 'LINE'));
+  const corners = [[0, 0], [40, 0], [40, 40], [0, 40]];
+  const farFromCorners = t4.entities.filter((e) => e.type === 'POLYLINE').every((p) => [p.verts[0], p.verts[p.verts.length - 1]]
+    .every((v) => corners.every((c) => Math.hypot(v.x - c[0], v.y - c[1]) >= 1)));
+  check('tabs: bridges stay clear of corners', farFromCorners,
+    JSON.stringify(t4.entities.filter((e) => e.type === 'POLYLINE').map((p) => [p.verts[0], p.verts[p.verts.length - 1]])));
+  const twoBodies = [
+    { type: 'POLYLINE', layer: '0', closed: true, verts: [{ x: 0, y: 0, bulge: 0 }, { x: 20, y: 0, bulge: 0 }, { x: 20, y: 20, bulge: 0 }, { x: 0, y: 20, bulge: 0 }] },
+    { type: 'POLYLINE', layer: '0', closed: true, verts: [{ x: 30, y: 0, bulge: 0 }, { x: 55, y: 0, bulge: 0 }, { x: 55, y: 20, bulge: 0 }, { x: 30, y: 20, bulge: 0 }] },
+  ];
+  const tb = applyTabs(twoBodies, 0.5);
+  check('tabs: every body gets bridges', tb.applied && tb.entities.length === 4 && tb.entities.every((e) => !e.closed));
+  const openOuter = [
+    { type: 'LINE', layer: '0', x1: 0, y1: 0, x2: 40, y2: 0 },
+    { type: 'LINE', layer: '0', x1: 40, y1: 0, x2: 40, y2: 40 },
+    { type: 'LINE', layer: '0', x1: 40, y1: 40, x2: 0, y2: 40 },
+    { type: 'CIRCLE', layer: '0', cx: 20, cy: 20, r: 5 },
+  ];
+  const to = applyTabs(openOuter, 0.5);
+  check('tabs: unrecognised outer contour leaves the part untouched', !to.applied && to.entities === openOuter);
+  // Regeneration follows the stored tabbed list, not the library's current size.
+  const small = mkGeo('small', rectDxfOf(20, 20), { mode: 'filler', count: 0, maxCount: 0 });
+  const bigP = mkGeo('big', rectDxfOf(100, 100), { priority: 1, count: 1 });
+  const res = generateSheet({ sheetW: 200, sheetH: 200, margin: 5, gap: 4, parts: [bigP, small], tabsMax: 30 });
+  check('tabs: tabbed ids recorded', Array.isArray(res.tabbed) && res.tabbed.indexOf('small') !== -1 && res.tabbed.indexOf('big') === -1);
+  const grown = [bigP, { ...small, w: 1000, h: 1000 }];
+  check('tabs: rebuild identical after the library changed', buildSheetDxf({
+    parts: grown, placements: res.placements, sheetW: 200, sheetH: 200, tabsMax: res.tabsMax, tabbed: res.tabbed,
+  }) === res.dxf);
 }
 
 // ---------------------------------------------------------------------------

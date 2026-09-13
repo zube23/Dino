@@ -850,6 +850,7 @@ function expandInsert(ins, blocks, out, warnings, depth) {
           const p = applyXform(e.x - block.baseX, e.y - block.baseY, sx, rot, ix, iy);
           expandInsert({
             ...e,
+            layer: (!e.layer || e.layer === '0') && ins.layer ? ins.layer : e.layer,
             x: p.x,
             y: p.y,
             sx: e.sx * sx,
@@ -858,6 +859,9 @@ function expandInsert(ins, blocks, out, warnings, depth) {
           }, blocks, out, warnings, depth + 1);
         } else {
           const moved = translateEntity(cloneEntity(e), -block.baseX, -block.baseY);
+          // Block geometry on layer "0" inherits the INSERT's layer (AutoCAD
+          // ByBlock rule) - an engraved logo block keeps its engraving layer.
+          if ((!moved.layer || moved.layer === '0') && ins.layer && ins.layer !== '0') moved.layer = ins.layer;
           out.push(transformEntity(moved, { rotDeg: rot, dx: ix, dy: iy, scale: sx }));
         }
       }

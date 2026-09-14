@@ -591,6 +591,13 @@ $('inWid').addEventListener('keydown', (e) => {
 for (const id of ['inLen', 'inWid']) {
   $(id).addEventListener('input', renderOffers);
 }
+// One click empties both fields and puts the cursor back on DULJINA.
+$('btnClearDims').addEventListener('click', () => {
+  $('inLen').value = '';
+  $('inWid').value = '';
+  renderOffers();
+  $('inLen').focus();
+});
 $('btnOpen').addEventListener('click', () => {
   if (state.selectedSheetId) openSheetFeedback(state.selectedSheetId);
 });

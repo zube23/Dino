@@ -1222,6 +1222,8 @@ const unplacedSum = (res) => (res.unplaced || []).reduce((n, u) => n + (u.count 
   const di = all.findIndex((v) => v.variant === 'stisnuto');
   check('dense: stisnuto first when present', di === -1 || di === 0,
     JSON.stringify(all.map((v) => v.variant)));
+  check('1.5.1: no SITNO sheet is offered any more', !all.some((v) => v.variant === 'sitno'),
+    JSON.stringify(all.map((v) => v.variant)));
 }
 
 {

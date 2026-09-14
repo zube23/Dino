@@ -161,9 +161,23 @@ html, body {
 }
 .dims {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr auto;
   gap: 12px;
+  align-items: end;
 }
+/* One big glove-friendly button that empties both dimension fields. */
+.dims-clear {
+  font-size: clamp(22px, 4vw, 30px);
+  line-height: 1;
+  padding: 0 14px;
+  height: clamp(52px, 9vw, 72px);
+  background: var(--card);
+  color: var(--muted);
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  cursor: pointer;
+}
+.dims-clear:hover { border-color: var(--err); color: var(--err); }
 .dim {
   display: flex;
   flex-direction: column;
@@ -621,6 +635,7 @@ html, body {
             <span>ŠIRINA (cm)</span>
             <input id="inWid" type="text" inputmode="decimal" placeholder="150" autocomplete="off">
           </label>
+          <button id="btnClearDims" class="dims-clear" title="Obriši duljinu i širinu">🗑</button>
         </div>
         <button id="btnGenerate" class="generate">GENERIRAJ</button>
         <button id="btnDense" class="generate dense" title="Traži gušći raspored - traje par sekundi">★ STISNI JAČE</button>
@@ -4245,7 +4260,7 @@ function generateKnap(opts, baselineUnplaced, maxBump) {
 /**
  * One-stop generation for a GENERIRAJ / STISNI JACE press. Returns the
  * ordered list of sheets to offer:
- *   [stisnuto?] + [prioriteti, krupno, sitno] + [naknap?]
+ *   [stisnuto?] + [prioriteti, krupno] + [naknap?]
  * - stisnuto only when `dense` is requested AND it differs from the regular
  *   sheets (identical layouts are deduplicated);
  * - naknap only when even the best regular/dense sheet leaves something
@@ -4260,10 +4275,11 @@ function generateAll(opts, extra) {
   ]).sort());
   let minUnplaced = Infinity;
 
+  // The "sitni komadi" (small-first) sheet was dropped in 1.5.1 - the shop
+  // never picked it; the small-first order still serves the na-knap probes.
   const defs = [
     { variant: 'prioriteti', variantLabel: 'Po prioritetima', order: 'priority' },
     { variant: 'krupno', variantLabel: 'Krupni komadi', order: 'big' },
-    { variant: 'sitno', variantLabel: 'Sitni komadi', order: 'small' },
   ];
   for (const d of defs) {
     const res = generateSheet({ ...opts, order: d.order });
@@ -4998,7 +5014,7 @@ const SAMPLE_CONFIG = [{"file":"nosac_L.dxf","name":"Nosač L","priority":1,"mod
     },
     pickExe: async () => null,
     pickDir: async () => null,
-    appInfo: async () => ({ version: '1.5.0 · web proba', dataDir: '' }),
+    appInfo: async () => ({ version: '1.5.1 · web proba', dataDir: '' }),
   };
 })();
 
@@ -5595,6 +5611,13 @@ $('inWid').addEventListener('keydown', (e) => {
 for (const id of ['inLen', 'inWid']) {
   $(id).addEventListener('input', renderOffers);
 }
+// One click empties both fields and puts the cursor back on DULJINA.
+$('btnClearDims').addEventListener('click', () => {
+  $('inLen').value = '';
+  $('inWid').value = '';
+  renderOffers();
+  $('inLen').focus();
+});
 $('btnOpen').addEventListener('click', () => {
   if (state.selectedSheetId) openSheetFeedback(state.selectedSheetId);
 });

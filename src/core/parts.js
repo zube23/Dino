@@ -1240,7 +1240,7 @@ function generateKnap(opts, baselineUnplaced, maxBump) {
 /**
  * One-stop generation for a GENERIRAJ / STISNI JACE press. Returns the
  * ordered list of sheets to offer:
- *   [stisnuto?] + [prioriteti, krupno, sitno] + [naknap?]
+ *   [stisnuto?] + [prioriteti, krupno] + [naknap?]
  * - stisnuto only when `dense` is requested AND it differs from the regular
  *   sheets (identical layouts are deduplicated);
  * - naknap only when even the best regular/dense sheet leaves something
@@ -1255,10 +1255,11 @@ function generateAll(opts, extra) {
   ]).sort());
   let minUnplaced = Infinity;
 
+  // The "sitni komadi" (small-first) sheet was dropped in 1.5.1 - the shop
+  // never picked it; the small-first order still serves the na-knap probes.
   const defs = [
     { variant: 'prioriteti', variantLabel: 'Po prioritetima', order: 'priority' },
     { variant: 'krupno', variantLabel: 'Krupni komadi', order: 'big' },
-    { variant: 'sitno', variantLabel: 'Sitni komadi', order: 'small' },
   ];
   for (const d of defs) {
     const res = generateSheet({ ...opts, order: d.order });

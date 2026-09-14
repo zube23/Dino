@@ -595,6 +595,8 @@ for (const id of ['inLen', 'inWid']) {
 $('btnClearDims').addEventListener('click', () => {
   $('inLen').value = '';
   $('inWid').value = '';
+  $('genWarn').hidden = true;
+  $('genStatus').hidden = true;
   renderOffers();
   $('inLen').focus();
 });

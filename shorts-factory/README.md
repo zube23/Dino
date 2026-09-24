@@ -4,15 +4,20 @@ Potpuno automatizirana tvornica YouTube Shortsa. Sve se generira kodom —
 animacija, glas, titlovi, glazba i zvučni efekti — bez plaćenih servisa i
 bez tuđeg materijala.
 
-Glavni sadržaj: **LAWN WAR** — apsurdna ratna saga vrtnih patuljaka i
-plastičnih flaminga, snimljena "sigurnosnom kamerom" u 3 ujutro
-(`renderer/war.html`, epizode u `queue/scripts/`). Demonski glasovi,
-laseri, vodeni baloni, i željezno pravilo svemira: kad se upali svjetlo
-u kući, svi se smrznu u obične dekoracije.
+Glavni format: **3D PARKOUR + FACTS** (`renderer/parkour.html`,
+`"format": "facts"`) — gornja polovica ekrana je pravi 3D beskonačni
+parkour (Three.js u headless Chromiumu: šarene lebdeće kocke, originalni
+mint "slime" trkač, coinovi, trail, magla), donja polovica je panel sa
+zanimljivostima: narator + krupne riječi koje iskaču sinkronizirano s
+glasom, brojač FACT X/Y i progress bar. Skript je trivijalan za pisanje:
+hook + lista činjenica + outro (vidi `queue/scripts/00*-facts-*.json`).
+Sadržaj činjenica je originalan tekst; 3D svijet i lik su naši — ništa
+se ne preuzima s tuđih videa ni iz tuđih igara.
 
-Drugi svijet (deadpan dinosaur skečevi, `renderer/stage.html`) stoji
-arhiviran u `queue/legacy-dino/` — vrati koji fajl u `queue/scripts/`
-ako ga ikad zatreba.
+Arhivirani svjetovi (vrati koji fajl u `queue/scripts/` da se ponovno
+objavljuju): `queue/legacy-lawnwar/` — ratna saga patuljaka i flaminga
+(`renderer/war.html`); `queue/legacy-dino/` — deadpan dinosaur skečevi
+(`renderer/stage.html`).
 
 ## Kako radi
 

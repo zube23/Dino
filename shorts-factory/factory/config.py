@@ -5,6 +5,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STAGES = {
     "dino": os.path.join(ROOT, "renderer", "stage.html"),
     "war": os.path.join(ROOT, "renderer", "war.html"),
+    "parkour": os.path.join(ROOT, "renderer", "parkour.html"),
 }
 STAGE_HTML = STAGES["dino"]  # default
 QUEUE_DIR = os.path.join(ROOT, "queue", "scripts")

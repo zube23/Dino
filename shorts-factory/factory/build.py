@@ -3,7 +3,7 @@ import json
 import os
 import tempfile
 
-from . import audio, config, render, timeline
+from . import audio, config, facts, render, timeline
 
 
 def load_script(script_id):
@@ -16,7 +16,10 @@ def build_video(script_id):
     script = load_script(script_id)
     os.makedirs(config.OUT_DIR, exist_ok=True)
 
-    tl, voice_events, sfx_events, total = timeline.build(script)
+    if script.get("format") == "facts":
+        tl, voice_events, sfx_events, total = facts.build(script)
+    else:
+        tl, voice_events, sfx_events, total = timeline.build(script)
     print(f"[build] {script_id}: {len(tl['beats'])} beats, {total:.1f}s", flush=True)
 
     wav = tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name
@@ -42,7 +45,7 @@ def build_video(script_id):
 def build_description(script):
     lines = [script.get("description", "")]
     lines.append("")
-    lines.append(" ".join(config.CHANNEL_HASHTAGS))
+    lines.append(" ".join(script.get("hashtags", config.CHANNEL_HASHTAGS)))
     lines.append("")
     lines.append(config.ATTRIBUTION)
     return "\n".join(lines).strip()

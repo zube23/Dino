@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>parkour facts</title>
+<style>
+  @font-face { font-family:'Baloo'; src:url('../assets/fonts/baloo-800.woff2') format('woff2'); font-weight:800; }
+  @font-face { font-family:'Baloo'; src:url('../assets/fonts/baloo-700.woff2') format('woff2'); font-weight:700; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:1080px; height:1920px; background:#0B0D17; overflow:hidden; font-family:'Baloo',sans-serif; }
+  #gl { position:absolute; top:0; left:0; width:1080px; height:1056px; display:block; }
+  #panel { position:absolute; top:1056px; left:0; width:1080px; height:864px; background:#0B0D17; }
+  #accentLine { position:absolute; top:-6px; left:0; width:1080px; height:12px; background:#FFD166; border-radius:6px; }
+  #chipRow { position:absolute; top:44px; left:0; width:1080px; text-align:center; }
+  #chip { display:inline-block; background:#FFD166; color:#12141F; font-weight:800; font-size:44px;
+          padding:10px 36px; border-radius:40px; letter-spacing:1px; }
+  #ptitle { position:absolute; top:132px; left:0; width:1080px; text-align:center; color:#8E93A8;
+            font-weight:700; font-size:40px; letter-spacing:2px; }
+  #bigwrap { position:absolute; top:190px; left:40px; width:1000px; height:560px;
+             display:flex; align-items:center; justify-content:center; text-align:center; }
+  #bigtext { color:#FFF; font-weight:800; font-size:110px; line-height:1.08;
+             text-shadow:0 8px 0 rgba(0,0,0,0.35); transform-origin:center; }
+  #pbarBg { position:absolute; bottom:28px; left:60px; width:960px; height:14px; background:#1C2033; border-radius:7px; }
+  #pbar { height:14px; width:0; background:#FFD166; border-radius:7px; }
+  #vig { position:absolute; top:0; left:0; width:1080px; height:1056px;
+         background:radial-gradient(ellipse at 50% 45%, rgba(0,0,0,0) 60%, rgba(0,0,0,0.25) 100%); pointer-events:none; }
+</style>
+</head>
+<body>
+<canvas id="gl" width="1080" height="1056"></canvas>
+<div id="vig"></div>
+<div id="panel">
+  <div id="accentLine"></div>
+  <div id="chipRow"><span id="chip">FACT 1/5</span></div>
+  <div id="ptitle">FEELS ILLEGAL TO KNOW</div>
+  <div id="bigwrap"><div id="bigtext"></div></div>
+  <div id="pbarBg"><div id="pbar"></div></div>
+</div>
+<script src="../assets/vendor/three.min.js"></script>
+<script>
+'use strict';
+/* Deterministic 3D parkour runner + facts panel.
+   Everything is a pure function of time t (ms): __load(tl), __seek(t). */
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const lerp=(a,b,u)=>a+(b-a)*u;
+function mulberry32(s){let a=s>>>0;return function(){a|=0;a=(a+0x6D2B79F5)|0;let t=Math.imul(a^(a>>>15),1|a);t=(t+Math.imul(t^(t>>>7),61|t))^t;return((t^(t>>>14))>>>0)/4294967296;};}
+
+const HOP = 380;          // ms per jump — keep in sync with factory/facts.py
+const COIN_EVERY = 5;     // a coin sits on every 5th block (i % 5 == 2)
+
+/* ---------- three.js scene ---------- */
+const canvas = document.getElementById('gl');
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true});
+renderer.setSize(1080,1056,false);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#7EC8F2');
+scene.fog = new THREE.Fog('#7EC8F2', 18, 46);
+const cam = new THREE.PerspectiveCamera(62, 1080/1056, 0.1, 120);
+
+const sun = new THREE.DirectionalLight('#FFFFFF', 1.15);
+sun.position.set(6,10,4); scene.add(sun);
+scene.add(new THREE.AmbientLight('#BFD9FF', 0.55));
+
+/* course */
+let course=[], coins=[], blocksG=new THREE.Group(), coinG=new THREE.Group(), decoG=new THREE.Group();
+scene.add(blocksG); scene.add(coinG); scene.add(decoG);
+
+function buildCourse(seed){
+  const r=mulberry32(seed);
+  course=[]; coins=[];
+  blocksG.clear(); coinG.clear(); decoG.clear();
+  let x=0,y=0,z=0;
+  const boxGeo=new THREE.BoxGeometry(1.6,1.0,1.6);
+  for(let i=0;i<260;i++){
+    course.push({x,y,z});
+    const hue=(i*23)%360;
+    const mat=new THREE.MeshLambertMaterial({color:new THREE.Color(`hsl(${hue},68%,60%)`)});
+    const m=new THREE.Mesh(boxGeo,mat);
+    m.position.set(x,y-0.5,z);
+    blocksG.add(m);
+    if(i%COIN_EVERY===2){
+      const c=new THREE.Mesh(new THREE.OctahedronGeometry(0.34),
+        new THREE.MeshLambertMaterial({color:'#FFD166', emissive:'#8A6A00'}));
+      c.position.set(x,y+1.05,z);
+      c.userData.block=i;
+      coins.push(c); coinG.add(c);
+    }
+    // next block
+    x += 2.0 + r()*1.1;
+    const dy = r()<0.34 ? (r()<0.5?1:-1) : 0;
+    y = clamp(y+dy, -3, 4);
+    z = clamp(z + (r()-0.5)*2.4, -3.4, 3.4);
+  }
+  // clouds + floating islands
+  const cr=mulberry32(seed+7);
+  for(let i=0;i<26;i++){
+    const w=3+cr()*6;
+    const cl=new THREE.Mesh(new THREE.BoxGeometry(w,0.7,2.2+cr()*2),
+      new THREE.MeshLambertMaterial({color:'#FFFFFF', transparent:true, opacity:0.85}));
+    cl.position.set(i*22+cr()*18-10, 6+cr()*7, -14-cr()*16);
+    decoG.add(cl);
+  }
+  for(let i=0;i<18;i++){
+    const s=1.2+cr()*1.8;
+    const isl=new THREE.Mesh(new THREE.BoxGeometry(s,s*0.55,s),
+      new THREE.MeshLambertMaterial({color:new THREE.Color(`hsl(${(i*47)%360},45%,52%)`)}));
+    isl.position.set(i*30+cr()*24, -6-cr()*5, 10+cr()*14);
+    decoG.add(isl);
+  }
+}
+
+/* runner: original mint slime cube with big eyes */
+const runner=new THREE.Group();
+const slimeMat=new THREE.MeshLambertMaterial({color:'#58E1B2', emissive:'#0E4433'});
+const body=new THREE.Mesh(new THREE.BoxGeometry(0.9,0.9,0.9), slimeMat);
+body.position.y=0.45; runner.add(body);
+function eye(zoff){
+  const g=new THREE.Group();
+  const w=new THREE.Mesh(new THREE.CircleGeometry(0.16,20), new THREE.MeshBasicMaterial({color:'#FFF'}));
+  const p=new THREE.Mesh(new THREE.CircleGeometry(0.075,16), new THREE.MeshBasicMaterial({color:'#12141F'}));
+  p.position.z=0.005;
+  g.add(w); g.add(p);
+  g.position.set(zoff,0.58,0.455);
+  return g;
+}
+runner.add(eye(-0.2)); runner.add(eye(0.2));
+scene.add(runner);
+
+/* trail ghosts */
+const trail=[];
+for(let i=0;i<6;i++){
+  const gm=new THREE.Mesh(new THREE.BoxGeometry(0.5,0.5,0.5),
+    new THREE.MeshLambertMaterial({color:'#58E1B2', transparent:true, opacity:0.28-(i*0.04)}));
+  scene.add(gm); trail.push(gm);
+}
+/* coin sparkles */
+const sparkles=[];
+for(let i=0;i<8;i++){
+  const sp=new THREE.Mesh(new THREE.OctahedronGeometry(0.09),
+    new THREE.MeshBasicMaterial({color:'#FFE9A8', transparent:true}));
+  sp.visible=false; scene.add(sp); sparkles.push(sp);
+}
+
+function pathPos(tms){
+  const k=Math.max(0, tms/HOP);
+  const i=Math.min(course.length-2, Math.floor(k));
+  const u=clamp(k-i,0,1);
+  const a=course[i], b=course[i+1];
+  const rise=b.y-a.y;
+  const h=0.9+Math.max(0,rise)*0.4;
+  return {
+    x:lerp(a.x,b.x,u),
+    y:lerp(a.y,b.y,u)+h*4*u*(1-u),
+    z:lerp(a.z,b.z,u),
+    i, u,
+    dirx:b.x-a.x, dirz:b.z-a.z,
+  };
+}
+
+function renderWorld(t){
+  const p=pathPos(t);
+  // runner pose
+  runner.position.set(p.x,p.y,p.z);
+  const land=p.u>0.86?(p.u-0.86)/0.14:(p.u<0.10?1-(p.u/0.10):0);
+  const sq=1-0.24*land;
+  runner.scale.set(1+0.16*land, sq, 1+0.16*land);
+  runner.rotation.z=-0.12*Math.sin(p.u*Math.PI);
+  runner.rotation.y=Math.atan2(-p.dirz,p.dirx)*0.35;
+  // trail
+  for(let i=0;i<trail.length;i++){
+    const tp=pathPos(Math.max(0,t-(i+1)*46));
+    trail[i].position.set(tp.x,tp.y+0.35,tp.z);
+    trail[i].rotation.y=t/300+i;
+  }
+  // coins spin + collect
+  for(const c of coins){
+    const tLand=c.userData.block*HOP;
+    if(t>=tLand){
+      const q=clamp((t-tLand)/260,0,1);
+      c.scale.setScalar(1-q);
+      c.visible=q<1;
+      if(q<1){
+        for(let s=0;s<sparkles.length;s++){
+          const a=s/sparkles.length*Math.PI*2;
+          sparkles[s].visible=true;
+          sparkles[s].position.set(
+            c.position.x+Math.cos(a)*(0.3+q*1.1),
+            c.position.y+Math.sin(a)*(0.3+q*0.9)+q*0.5,
+            c.position.z+Math.sin(a*1.7)*0.3);
+          sparkles[s].material.opacity=1-q;
+        }
+      }
+    } else { c.visible=true; c.scale.setScalar(1); }
+    c.rotation.y=t/260; c.rotation.x=0.4;
+    c.position.y=course[c.userData.block].y+1.05+Math.sin(t/300+c.userData.block)*0.08;
+  }
+  const anyLive=coins.some(c=>{const d=t-c.userData.block*HOP; return d>=0&&d<260;});
+  if(!anyLive) sparkles.forEach(s=>s.visible=false);
+  // camera: smoothed by sampling the path slightly behind
+  const cp=pathPos(Math.max(0,t-130));
+  const camX=cp.x-4.6, camY=cp.y+3.1, camZ=cp.z+6.4;
+  cam.position.set(camX,camY,camZ);
+  const look=pathPos(t+260);
+  cam.lookAt(look.x+1.2, look.y+0.6, look.z);
+  cam.fov=62+3.5*land;
+  cam.rotation.z+=Math.sin(t/900)*0.012;
+  cam.updateProjectionMatrix();
+  renderer.render(scene,cam);
+}
+
+/* ---------- facts panel ---------- */
+const chip=document.getElementById('chip'), ptitle=document.getElementById('ptitle'),
+      bigtext=document.getElementById('bigtext'), pbar=document.getElementById('pbar'),
+      accentLine=document.getElementById('accentLine');
+
+function fitBig(){
+  let fs=118;
+  bigtext.style.fontSize=fs+'px';
+  const wrap=document.getElementById('bigwrap');
+  while(fs>44 && (bigtext.scrollWidth>wrap.clientWidth || bigtext.scrollHeight>wrap.clientHeight)){
+    fs-=6; bigtext.style.fontSize=fs+'px';
+  }
+}
+
+let TL=null, READY=false;
+window.__load=function(tl){
+  TL=tl;
+  buildCourse(tl.seed||1);
+  READY=true;
+  return TL.beats.length;
+};
+
+window.__seek=function(t){
+  if(!READY)return false;
+  renderWorld(t);
+
+  let beat=TL.beats[0];
+  for(const b of TL.beats){ if(t>=b.t0) beat=b; }
+
+  const accent=beat.accent||'#FFD166';
+  accentLine.style.background=accent;
+  chip.style.background=accent;
+  pbar.style.background=accent;
+
+  chip.textContent=beat.chipText||'';
+  chip.style.visibility=beat.chipText?'visible':'hidden';
+  ptitle.textContent=beat.packTitle||'';
+
+  // current chunk
+  let chunk=null, chunkStart=0;
+  if(beat.chunks){
+    for(const c of beat.chunks){ if(t>=c[1]){ chunk=c[0]; chunkStart=c[1]; } }
+  }
+  const txt=chunk??(beat.caption||'');
+  if(bigtext.dataset.txt!==txt){
+    bigtext.textContent=txt;
+    bigtext.dataset.txt=txt;
+    fitBig();
+  }
+  const born=clamp((t-chunkStart)/150,0,1);
+  const pop=born<1?(0.82+0.18*(1+2.2*(born-1))*born):1;
+  bigtext.style.transform=`scale(${0.82+0.18*Math.min(1,born*1.6)}) rotate(${born<1?-1.5+born*1.5:0}deg)`;
+  bigtext.style.color=beat.isOutro?accent:'#FFF';
+
+  pbar.style.width=(clamp(t/TL.total,0,1)*960)+'px';
+  return true;
+};
+window.__ready=()=>READY;
+</script>
+</body>
+</html>

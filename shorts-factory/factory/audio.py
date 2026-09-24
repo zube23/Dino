@@ -234,6 +234,13 @@ def sfx(name):
         return 0.3 * x * _env(len(t), attack=0.15, release=0.1)
     if name == "click":
         return 0.4 * _noise(0.03, decay=140)
+    if name == "coin":
+        a = _note(988, 0.09, kind="tri", vol=0.5, decay=8)
+        b = _note(1319, 0.22, kind="tri", vol=0.55, decay=9)
+        out = np.zeros(int(0.3 * SR))
+        _place(out, 0, a)
+        _place(out, int(0.07 * SR), b)
+        return out
     if name == "heartbeat":
         one = _note(52, 0.18, vol=1.0, decay=18)
         out = np.zeros(int(0.9 * SR))
@@ -268,6 +275,8 @@ def _place(buf, p, x, gain=1.0):
 def music_bed(total_sec, seed_text, bpm=92, style="lofi"):
     if style == "war":
         return war_bed(total_sec, seed_text)
+    if style == "drive":
+        return drive_bed(total_sec, seed_text)
     seed = int(hashlib.sha1(seed_text.encode()).hexdigest()[:8], 16)
     rng = np.random.default_rng(seed)
     beat = 60.0 / bpm
@@ -352,6 +361,44 @@ def war_bed(total_sec, seed_text, bpm=142):
             _place(out, p, _lowpass(stab, 0.25))
 
     out = _lowpass(out, 0.5)
+    fade = int(0.4 * SR)
+    if n > fade:
+        out[-fade:] *= np.linspace(1, 0, fade)
+    return out
+
+
+DRIVE_RIFF = [48, 48, 55, 48, 53, 55, 48, 58]   # bright, rolling
+
+
+def drive_bed(total_sec, seed_text, bpm=126):
+    seed = int(hashlib.sha1(seed_text.encode()).hexdigest()[:8], 16)
+    rng = np.random.default_rng(seed)
+    beat = 60.0 / bpm
+    n = int(total_sec * SR)
+    out = np.zeros(n)
+
+    kick = np.tanh(_note(52, 0.2, vol=1.3, decay=19) * 2)
+    hat = _noise(0.04, vol=0.13, decay=70)
+    clap = _lowpass(np.random.default_rng(9).standard_normal(int(0.08 * SR)), 0.5) * 0.22 * _env(int(0.08 * SR), release=0.05)
+
+    nbeats = int(total_sec / beat) + 2
+    for b in range(nbeats):
+        p = int(b * beat * SR)
+        _place(out, p, kick)                              # four on the floor
+        _place(out, int((b + 0.5) * beat * SR), hat, 1.2)  # offbeat hat
+        if b % 2 == 1:
+            _place(out, p, clap)
+        for h in range(2):                                # rolling bass 8ths
+            m = DRIVE_RIFF[(b * 2 + h) % len(DRIVE_RIFF)] - 12
+            bn = _note(_midi(m), beat * 0.44, kind="saw", vol=0.30, decay=6)
+            _place(out, int((b + h / 2) * beat * SR), np.tanh(bn * 2.0))
+        if (b // 8) % 2 == 1:                             # gated arp every other phrase
+            for h in range(4):
+                m = DRIVE_RIFF[(b + h) % len(DRIVE_RIFF)] + 12
+                ar = _note(_midi(m), beat * 0.2, kind="tri", vol=0.11, decay=12)
+                _place(out, int((b + h / 4) * beat * SR), ar)
+
+    out = _lowpass(out, 0.62)
     fade = int(0.4 * SR)
     if n > fade:
         out[-fade:] *= np.linspace(1, 0, fade)

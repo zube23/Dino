@@ -21,9 +21,10 @@ def _chrome():
     return None  # let playwright use its own download
 
 
-def render(timeline, audio_wav, out_mp4):
+def render(timeline, audio_wav, out_mp4, stage="dino"):
     from playwright.sync_api import sync_playwright
 
+    stage_html = config.STAGES.get(stage, config.STAGE_HTML)
     total_ms = timeline["total"]
     n_frames = math.ceil(total_ms / 1000 * config.FPS)
     frames_dir = tempfile.mkdtemp(prefix="frames_")
@@ -39,7 +40,7 @@ def render(timeline, audio_wav, out_mp4):
                 viewport={"width": config.WIDTH, "height": config.HEIGHT},
                 device_scale_factor=1,
             )
-            page.goto("file://" + config.STAGE_HTML)
+            page.goto("file://" + stage_html)
             page.evaluate("document.fonts.ready.then(()=>1)")
             page.wait_for_function("document.fonts.status === 'loaded'")
             page.evaluate(f"__load({json.dumps(timeline)})")

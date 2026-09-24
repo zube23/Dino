@@ -65,6 +65,57 @@ def _lowpass(x, alpha=0.15):
     return y
 
 
+# ---------------- voice processing ----------------
+
+def _pitch(x, factor):
+    """Resample-based pitch shift (factor<1 = deeper + slower)."""
+    n_to = int(len(x) / factor)
+    return np.interp(np.linspace(0, len(x) - 1, n_to), np.arange(len(x)), x)
+
+
+def _echo(x, delay_s, fb=0.35, mixv=0.5, sr=SR):
+    d = int(delay_s * sr)
+    out = np.copy(x).astype(np.float64)
+    buf = np.zeros(len(x) + d * 4)
+    buf[:len(x)] += x
+    for i in range(1, 4):
+        seg = x * (fb ** i) * mixv
+        buf[d * i:d * i + len(x)] += seg
+    return buf[:len(x) + d * 2]
+
+
+def _bandpass(x, alpha_lo=0.08, alpha_hi=0.45):
+    lo = _lowpass(x, alpha_lo)
+    hi = _lowpass(x, alpha_hi)
+    return hi - lo
+
+
+def voice_fx(x, sr, kind):
+    """Post-process a synthesized voice line. Returns (samples, sr)."""
+    if kind == "demon":
+        a = _pitch(x, 0.58)
+        b = _pitch(x, 0.545)
+        n = min(len(a), len(b))
+        y = a[:n] * 0.7 + b[:n] * 0.5
+        y = np.tanh(y * 2.2)
+        y = _echo(y, 0.09, fb=0.45, mixv=0.6, sr=sr)
+        return y * 0.9, sr
+    if kind == "radio":
+        y = _bandpass(x, 0.05, 0.5)
+        y = np.tanh(y * 4.5) * 0.8
+        crackle = np.random.default_rng(4).standard_normal(len(y)) * 0.012
+        gate = (np.abs(_lowpass(np.abs(y), 0.002)) > 0.01).astype(float)
+        y = y + crackle * (0.4 + 0.6 * gate)
+        # squelch click at start/end
+        click = _noise(0.03, vol=0.25, decay=90)
+        y[:len(click)] += click
+        y[-len(click):] += click[:len(y[-len(click):])]
+        return y, sr
+    if kind == "deep":
+        return _pitch(x, 0.78), sr
+    return x, sr
+
+
 # ---------------- SFX ----------------
 
 def sfx(name):
@@ -125,6 +176,70 @@ def sfx(name):
         n = _lowpass(n, 0.12)
         amp = 0.25 + 0.2 * np.sin(2 * np.pi * 0.8 * t)
         return 0.5 * n * amp * _env(len(t), attack=0.2, release=0.4)
+    # ------- war universe -------
+    if name == "laser":
+        t = _t(0.32)
+        f = 2400 * np.exp(-9 * t) + 240
+        x = np.sign(np.sin(2 * np.pi * np.cumsum(f) / SR))
+        return 0.34 * x * np.exp(-7 * t) * _env(len(t))
+    if name == "boom":
+        t = _t(1.1)
+        body = np.sin(2 * np.pi * (60 * np.exp(-2.2 * t) + 28) * t)
+        crack = _lowpass(np.random.default_rng(2).standard_normal(len(t)), 0.5) * np.exp(-9 * t)
+        x = 1.1 * body * np.exp(-2.8 * t) + 0.8 * crack
+        return np.tanh(x * 1.6) * 0.95 * _env(len(t), release=0.3)
+    if name == "siren":
+        t = _t(1.6)
+        f = np.where((t % 0.5) < 0.25, 880.0, 660.0)
+        x = np.sign(np.sin(2 * np.pi * np.cumsum(f) / SR)) * 0.5 + np.sin(2 * np.pi * np.cumsum(f) / SR) * 0.5
+        return 0.22 * x * _env(len(t), attack=0.05, release=0.3)
+    if name == "riser":
+        t = _t(1.2)
+        f = 160 + 1400 * (t / 1.2) ** 2
+        tone = np.sin(2 * np.pi * np.cumsum(f) / SR)
+        n = _lowpass(np.random.default_rng(6).standard_normal(len(t)), 0.3)
+        amp = (t / 1.2) ** 1.6
+        return 0.4 * (0.5 * tone + 0.6 * n) * amp
+    if name == "honk":
+        t = _t(0.5)
+        f = 300 + 40 * np.sin(2 * np.pi * 26 * t) - 120 * t
+        x = 2 * ((np.cumsum(f) / SR) % 1) - 1
+        x = _lowpass(x, 0.4)
+        return 0.55 * np.tanh(x * 3) * _env(len(t), attack=0.02, release=0.12)
+    if name == "glitch":
+        rng = np.random.default_rng(13)
+        out = np.zeros(int(0.45 * SR))
+        for i in range(9):
+            p = int(rng.uniform(0, 0.38) * SR)
+            seg = (rng.standard_normal(int(0.03 * SR)) > 0.6).astype(float) * 2 - 1
+            out[p:p + len(seg)] += seg * rng.uniform(0.1, 0.3)
+        return _lowpass(out, 0.6) * 0.7
+    if name == "thunder":
+        t = _t(1.8)
+        n = _lowpass(np.random.default_rng(8).standard_normal(len(t)), 0.08)
+        amp = np.exp(-1.8 * t) * (1 + 0.7 * np.sin(2 * np.pi * 2.1 * t))
+        return np.tanh(n * amp * 4) * 0.8
+    if name == "splash":
+        t = _t(0.5)
+        n = _lowpass(np.random.default_rng(10).standard_normal(len(t)), 0.25)
+        return 0.5 * n * np.exp(-6 * t) * _env(len(t))
+    if name == "launch":
+        t = _t(0.4)
+        f = 180 + 800 * (t / 0.4)
+        return 0.35 * np.sin(2 * np.pi * np.cumsum(f) / SR) * np.exp(-4 * t)
+    if name == "teleport":
+        t = _t(0.45)
+        f = 1800 * (1 - t / 0.45) ** 2 + 120
+        x = np.sin(2 * np.pi * np.cumsum(f) / SR)
+        return 0.3 * x * _env(len(t), attack=0.15, release=0.1)
+    if name == "click":
+        return 0.4 * _noise(0.03, decay=140)
+    if name == "heartbeat":
+        one = _note(52, 0.18, vol=1.0, decay=18)
+        out = np.zeros(int(0.9 * SR))
+        _place(out, 0, one)
+        _place(out, int(0.24 * SR), one, 0.7)
+        return np.tanh(out * 1.4) * 0.8
     return np.zeros(1)
 
 
@@ -150,7 +265,9 @@ def _place(buf, p, x, gain=1.0):
     buf[p:p + len(seg)] += gain * seg
 
 
-def music_bed(total_sec, seed_text, bpm=92):
+def music_bed(total_sec, seed_text, bpm=92, style="lofi"):
+    if style == "war":
+        return war_bed(total_sec, seed_text)
     seed = int(hashlib.sha1(seed_text.encode()).hexdigest()[:8], 16)
     rng = np.random.default_rng(seed)
     beat = 60.0 / bpm
@@ -195,6 +312,52 @@ def music_bed(total_sec, seed_text, bpm=92):
     return out
 
 
+WAR_RIFF = [45, 45, 48, 45, 51, 45, 50, 48]   # A minor menace
+
+
+def war_bed(total_sec, seed_text, bpm=142):
+    seed = int(hashlib.sha1(seed_text.encode()).hexdigest()[:8], 16)
+    rng = np.random.default_rng(seed)
+    beat = 60.0 / bpm
+    n = int(total_sec * SR)
+    out = np.zeros(n)
+
+    kick = np.tanh(_note(48, 0.24, vol=1.4, decay=17) * 2)
+    hat = _noise(0.03, vol=0.10, decay=90)
+    tom = _note(96, 0.2, vol=0.7, decay=14)
+
+    nbeats = int(total_sec / beat) + 2
+    for b in range(nbeats):
+        p = int(b * beat * SR)
+        _place(out, p, kick)
+        for h in range(4):
+            _place(out, int((b + h / 4) * beat * SR), hat, 0.6 + 0.4 * (h % 2))
+        # driving 8th-note bass riff
+        for h in range(2):
+            note_idx = (b * 2 + h) % len(WAR_RIFF)
+            m = WAR_RIFF[note_idx] - 12
+            bn = _note(_midi(m), beat * 0.46, kind="saw", vol=0.34, decay=5)
+            _place(out, int((b + h / 2) * beat * SR), np.tanh(bn * 2.4))
+        # tom fill every 4th bar
+        if b % 16 == 14:
+            for k in range(6):
+                _place(out, int((b + k / 6) * beat * SR), tom, 0.5 + 0.08 * k)
+        # ominous stab at bar starts
+        if b % 8 == 0:
+            stab = _sum(
+                _note(_midi(45), beat * 1.6, kind="saw", vol=0.16, decay=2.2),
+                _note(_midi(45.06), beat * 1.6, kind="saw", vol=0.16, decay=2.2),
+                _note(_midi(52), beat * 1.6, kind="saw", vol=0.10, decay=2.2),
+            )
+            _place(out, p, _lowpass(stab, 0.25))
+
+    out = _lowpass(out, 0.5)
+    fade = int(0.4 * SR)
+    if n > fade:
+        out[-fade:] *= np.linspace(1, 0, fade)
+    return out
+
+
 # ---------------- mixing ----------------
 
 def resample(x, sr_from, sr_to=SR):
@@ -204,13 +367,13 @@ def resample(x, sr_from, sr_to=SR):
     return np.interp(np.linspace(0, len(x) - 1, n_to), np.arange(len(x)), x).astype(np.float32)
 
 
-def mix(total_sec, voice_events, sfx_events, seed_text, out_path):
+def mix(total_sec, voice_events, sfx_events, seed_text, out_path, style="lofi"):
     """voice_events: [(t_sec, samples, sr)], sfx_events: [(t_sec, name)]"""
     n = int(total_sec * SR)
     master = np.zeros(n)
 
-    music = music_bed(total_sec, seed_text)
-    master[:len(music)] += 0.30 * music[:n]
+    music = music_bed(total_sec, seed_text, style=style)
+    master[:len(music)] += (0.34 if style == "war" else 0.30) * music[:n]
 
     for t0, x, sr in voice_events:
         x = resample(x, sr)

@@ -1,9 +1,18 @@
 # shorts-factory
 
-Potpuno automatizirana tvornica YouTube Shortsa: smiješni skečevi s
-dinosaurom kojem ništa u modernom svijetu nije dizajnirano za ruke.
-Sve se generira kodom — animacija, glas, titlovi, glazba i zvučni efekti —
-bez plaćenih servisa i bez tuđeg materijala.
+Potpuno automatizirana tvornica YouTube Shortsa. Sve se generira kodom —
+animacija, glas, titlovi, glazba i zvučni efekti — bez plaćenih servisa i
+bez tuđeg materijala.
+
+Glavni sadržaj: **LAWN WAR** — apsurdna ratna saga vrtnih patuljaka i
+plastičnih flaminga, snimljena "sigurnosnom kamerom" u 3 ujutro
+(`renderer/war.html`, epizode u `queue/scripts/`). Demonski glasovi,
+laseri, vodeni baloni, i željezno pravilo svemira: kad se upali svjetlo
+u kući, svi se smrznu u obične dekoracije.
+
+Drugi svijet (deadpan dinosaur skečevi, `renderer/stage.html`) stoji
+arhiviran u `queue/legacy-dino/` — vrati koji fajl u `queue/scripts/`
+ako ga ikad zatreba.
 
 ## Kako radi
 
@@ -79,6 +88,30 @@ Polja beata:
 
 Recept koji radi: hook u prvoj sekundi → 2-3 eskalacije → rez na `void` +
 `punch` za poantu → kratki tag. Ukupno 15–25 s.
+
+## LAWN WAR epizode (stage: "war")
+
+Skript dodatno postavlja `"stage": "war"`, `"music": "war"`,
+`"voice": "radio"` (default za `say`; po beatu `"voice": "demon"` za
+patuljke). Polja beata:
+
+| polje | značenje |
+|-------|----------|
+| `shot` | wide, lawn, gnomes, flams, face_gnome, face_flam, window, sky, fenceline |
+| `action` | idle, glide, teleport_in, stare_glow, retreat, honk, honkcharge, volley, laser, battle, explode, sprinkler, airdrop, freeze |
+| `gn` / `fl` | broj patuljaka / flaminga (pamti se do promjene) |
+| `gadv` / `fadv` | pomak linije prema neprijatelju, px ili [od, do] |
+| `light` | true = upali se prozor i SVE se smrzne (pravilo svemira) |
+| `big` | div-patuljak iza ograde, 0–1 ili [od, do] |
+| `title` / `sub` | full-screen kartica ("EPISODE 2 — TOMORROW.") |
+| `crash` | crash-zoom na početku beata; `shake` 0–1; `shakeDecay` |
+| `fx` | flash, lightning, glitch, redalert |
+| `top` | crvena pločica ("CODE PINK") |
+
+Recept epizode: title cold-open → creepy uspostava → eskalacija sukoba
+(2-3 izmjene) → freeze gag na pola → još veća eskalacija → lore otkriće →
+title cliffhanger "EPISODE N+1 — TOMORROW." Ukupno 25–30 s. Svaka epizoda
+podigne ulog: novo oružje, nova jedinica, veće otkriće.
 
 ## Podešavanje
 

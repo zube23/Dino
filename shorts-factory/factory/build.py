@@ -20,10 +20,11 @@ def build_video(script_id):
     print(f"[build] {script_id}: {len(tl['beats'])} beats, {total:.1f}s", flush=True)
 
     wav = tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name
-    audio.mix(total, voice_events, sfx_events, script_id, wav)
+    audio.mix(total, voice_events, sfx_events, script_id, wav,
+              style=script.get("music", "lofi"))
 
     out_mp4 = os.path.join(config.OUT_DIR, f"{script_id}.mp4")
-    render.render(tl, wav, out_mp4)
+    render.render(tl, wav, out_mp4, stage=script.get("stage", "dino"))
     os.unlink(wav)
 
     meta = {

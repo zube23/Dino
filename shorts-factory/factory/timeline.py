@@ -1,8 +1,14 @@
 """Turn a sketch script (queue/scripts/*.json) into:
   - a timeline the renderer draws (absolute times, per-beat state)
   - voice + sfx event lists for the audio mixer
+
+Works for every stage/universe: beat keys that this module doesn't consume
+are passed through to the renderer untouched.
 """
-from . import config, tts
+from . import audio, config, tts
+
+# keys consumed here; everything else goes straight to the renderer
+_CONSUMED = {"say", "caption", "pause", "dur", "sfx", "no_sfx", "voice", "capStyle"}
 
 AUTO_SFX = {
     "walkin": [("whoosh", 0.0)],
@@ -14,20 +20,26 @@ AUTO_SFX = {
     "typing": [("keys", 0.1)],
     "reach": [("creak", 0.15)],
     "slump": [("thud", 0.55)],
+    # war universe
+    "laser": [("laser", 0.05)],
+    "volley": [("launch", 0.05), ("splash", 0.6)],
+    "explode": [("boom", 0.0)],
+    "freeze": [("click", 0.02)],
+    "glitchcut": [("glitch", 0.0)],
+    "honkcharge": [("honk", 0.0), ("honk", 0.28), ("honk", 0.56)],
+    "teleport_in": [("teleport", 0.0)],
 }
 
 
 def build(script):
     beats_in = script["beats"]
-    texts = [b["say"] for b in beats_in if b.get("say")]
-    synths = tts.synth_script_lines(texts)
+    default_voice = script.get("voice", "clean")
 
     beats_out = []
     voice_events = []
     sfx_events = []
     t = 0.0
-    vi = 0
-    bg = "office"
+    bg = beats_in[0].get("bg", "office")
     props = []
 
     for b in beats_in:
@@ -36,17 +48,18 @@ def build(script):
         beat = {
             "bg": bg,
             "props": props,
-            "mood": b.get("mood", "neutral"),
-            "action": b.get("action", "idle"),
             "capStyle": b.get("capStyle", "say"),
         }
-        for k in ("punch", "shake", "top", "ring", "hatFly", "fx", "pupDX"):
-            if k in b:
-                beat[k] = b[k]
+        for k, v in b.items():
+            if k not in _CONSUMED and k not in beat:
+                beat[k] = v
 
         if b.get("say"):
-            x, sr, dur = synths[vi]
-            vi += 1
+            kind = b.get("voice", default_voice)
+            x, sr = tts.synth_line(b["say"])
+            if kind != "clean":
+                x, sr = audio.voice_fx(x, sr, kind)
+            dur = len(x) / sr
             talk0 = t + config.TALK_LEAD
             voice_events.append((talk0, x, sr))
             beat_dur = config.TALK_LEAD + dur + b.get("pause", config.DEFAULT_PAUSE_AFTER_SAY)
@@ -62,7 +75,7 @@ def build(script):
         beat["t0"] = int(t * 1000)
         beat["t1"] = int((t + beat_dur) * 1000)
 
-        act = beat["action"]
+        act = beat.get("action")
         if act in AUTO_SFX and not b.get("no_sfx"):
             for name, frac in AUTO_SFX[act]:
                 sfx_events.append((t + frac * beat_dur, name))

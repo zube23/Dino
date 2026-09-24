@@ -1,0 +1,31 @@
+{
+  "id": "003-lawnwar-ep3",
+  "stage": "war",
+  "music": "war",
+  "voice": "radio",
+  "title": "The gnomes found the SPRINKLER — LAWN WAR Ep.3 (3AM cam)",
+  "description": "Episode 3: THE FORBIDDEN WEAPON. Intel was right. The gnomes read the sprinkler manual. Episode 4 tomorrow.",
+  "tags": ["gnomes", "flamingos", "lawn war", "animation", "meme", "battle", "3am", "security camera", "brainrot", "funny"],
+  "beats": [
+    { "title": "EPISODE 3.", "sub": "the forbidden weapon", "dur": 1.2, "sfx": "boom", "shot": "wide" },
+    { "shot": "wide", "gn": 7, "fl": 7, "action": "idle", "dur": 1.5, "caption": "*night 3 of the lawn war*" },
+    { "shot": "flams", "say": "Intel says the gnomes found the sprinkler manual.", "action": "idle", "pause": 0.2 },
+    { "shot": "face_gnome", "action": "stare_glow", "crash": true, "dur": 1.1, "sfx": "riser", "top": "OH NO" },
+    { "shot": "gnomes", "action": "glide", "say": "ACTIVATE THE SPRINKLER.", "voice": "demon",
+      "capStyle": "demon", "pause": 0.3 },
+    { "shot": "lawn", "action": "sprinkler", "dur": 2.0, "shake": 0.6, "sfx": ["splash", "splash"],
+      "caption": "*THE SPRINKLER*" },
+    { "shot": "flams", "action": "retreat", "dur": 1.5, "sfx": "honk", "caption": "*tactical retreat*" },
+    { "shot": "lawn", "action": "battle", "dur": 1.6, "fx": ["flash"], "shake": 1, "shakeDecay": true,
+      "sfx": "boom", "caption": "*mud war*" },
+    { "light": true, "action": "freeze", "shot": "wide", "dur": 1.5, "caption": "*homeowner. again.*" },
+    { "light": true, "shot": "window", "action": "freeze", "dur": 1.3,
+      "caption": "*the sprinkler turned itself on. sure.*" },
+    { "shot": "lawn", "action": "sprinkler", "dur": 1.5, "shake": 0.4, "sfx": "splash",
+      "caption": "*resume the mud*" },
+    { "shot": "fenceline", "big": [0, 0.25], "dur": 1.7, "fx": ["lightning"], "sfx": "thunder",
+      "caption": "*it grows closer*" },
+    { "shot": "flams", "say": "Command... the big one is real.", "action": "idle", "pause": 0.2 },
+    { "title": "EPISODE 4 — TOMORROW.", "sub": "the big one wakes", "dur": 1.6, "sfx": "boom" }
+  ]
+}

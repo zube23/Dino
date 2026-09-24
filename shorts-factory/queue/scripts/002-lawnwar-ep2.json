@@ -1,0 +1,33 @@
+{
+  "id": "002-lawnwar-ep2",
+  "stage": "war",
+  "music": "war",
+  "voice": "radio",
+  "title": "The flamingos called for BACKUP — LAWN WAR Ep.2 (3AM cam)",
+  "description": "Episode 2: CODE PINK. The gnomes took the birdbath. The flamingos answered with air support. Episode 3 tomorrow.",
+  "tags": ["gnomes", "flamingos", "lawn war", "animation", "meme", "battle", "3am", "security camera", "brainrot", "funny"],
+  "beats": [
+    { "title": "EPISODE 2.", "sub": "code pink", "dur": 1.2, "sfx": "boom", "shot": "wide" },
+    { "shot": "wide", "gn": 8, "fl": 3, "action": "glide", "gadv": [0, 120], "dur": 1.7,
+      "fx": ["redalert"], "caption": "*the gnomes are winning*" },
+    { "shot": "flams", "say": "We lost the birdbath. Repeat: the birdbath is gone.", "action": "idle", "pause": 0.25 },
+    { "shot": "face_flam", "action": "honk", "crash": true, "dur": 0.9 },
+    { "shot": "flams", "say": "Requesting backup. CODE PINK.", "action": "honk", "pause": 0.2 },
+    { "shot": "sky", "dur": 1.4, "sfx": "riser", "caption": "*reinforcements inbound*" },
+    { "shot": "wide", "fl": 9, "action": "airdrop", "dur": 1.8, "sfx": "whoosh", "shake": 0.3,
+      "caption": "*AIR SUPPORT*" },
+    { "shot": "flams", "action": "honkcharge", "top": "FULL SEND", "dur": 1.4, "fx": ["redalert"],
+      "caption": "*FULL SEND*" },
+    { "shot": "lawn", "action": "volley", "dur": 1.8, "caption": "*maximum artillery*" },
+    { "shot": "lawn", "action": "battle", "dur": 1.7, "fx": ["flash"], "shake": 1, "shakeDecay": true,
+      "sfx": "boom", "caption": "*chaos*" },
+    { "light": true, "action": "freeze", "shot": "wide", "dur": 1.5, "caption": "*not again*" },
+    { "light": true, "shot": "window", "action": "freeze", "dur": 1.2, "caption": "*decorations. obviously.*" },
+    { "shot": "lawn", "action": "battle", "dur": 1.5, "fx": ["flash"], "shake": 0.9, "sfx": "boom",
+      "caption": "*resume*" },
+    { "shot": "gnomes", "action": "retreat", "dur": 1.6, "caption": "*the gnomes... fall back?*" },
+    { "shot": "face_gnome", "action": "stare_glow", "crash": true, "say": "THIS MEANS WAR.",
+      "voice": "demon", "capStyle": "demon", "pause": 0.3 },
+    { "title": "EPISODE 3 — TOMORROW.", "sub": "they were never decorations", "dur": 1.7, "sfx": "thunder" }
+  ]
+}

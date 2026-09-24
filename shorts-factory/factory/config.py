@@ -2,7 +2,11 @@ import os
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-STAGE_HTML = os.path.join(ROOT, "renderer", "stage.html")
+STAGES = {
+    "dino": os.path.join(ROOT, "renderer", "stage.html"),
+    "war": os.path.join(ROOT, "renderer", "war.html"),
+}
+STAGE_HTML = STAGES["dino"]  # default
 QUEUE_DIR = os.path.join(ROOT, "queue", "scripts")
 STATE_FILE = os.path.join(ROOT, "queue", "state.json")
 OUT_DIR = os.path.join(ROOT, "out")
@@ -28,5 +32,5 @@ CHROME_CANDIDATES = [
     "/opt/pw-browsers/chromium/chrome-linux/chrome",
 ]
 
-CHANNEL_HASHTAGS = ["#shorts", "#animation", "#comedy"]
+CHANNEL_HASHTAGS = ["#shorts", "#animation", "#lawnwar"]
 ATTRIBUTION = "Voice: Piper TTS, LibriTTS voice model (CC BY 4.0, openslr.org/60)."

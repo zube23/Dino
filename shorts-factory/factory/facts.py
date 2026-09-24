@@ -22,6 +22,7 @@ from . import config, tts
 
 HOP = 0.380          # seconds per jump — keep in sync with renderer/parkour.html
 COIN_EVERY = 5       # coin on every block where i % 5 == 2
+BOOST_EVERY = 17     # boost pad where i % 17 == 9 (big flip jump)
 GAP = 0.30           # pause between lines
 ACCENTS = ["#FFD166", "#4FC3F7", "#FF5D8F", "#7CE577", "#C77DFF", "#FF9F5A"]
 
@@ -101,6 +102,11 @@ def build(script):
     while k * HOP < total - 0.4:
         sfx_events.append((k * HOP, "coin"))
         k += COIN_EVERY
+    # boost pads: the big flip jump launches from block k where k % 17 == 9
+    k = 9
+    while k * HOP < total - 0.8:
+        sfx_events.append((k * HOP, "whoosh"))
+        k += BOOST_EVERY
 
     seed = int(hashlib.sha1(script["id"].encode()).hexdigest()[:8], 16) & 0x7FFFFFFF
     timeline = {"beats": beats, "total": int(total * 1000), "seed": seed}

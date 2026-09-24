@@ -1,0 +1,16 @@
+{
+  "id": "008-pickle-jar",
+  "title": "How a T-Rex opens a pickle jar",
+  "description": "Sealed by the gods. Opened by commitment.",
+  "tags": ["dinosaur", "trex", "animation", "comedy", "food", "funny", "cartoon", "relatable"],
+  "beats": [
+    { "bg": "kitchen", "props": ["jar"],
+      "say": "Pickle jar. Sealed by the gods.", "mood": "focused", "action": "walkin" },
+    { "caption": "*grip technology failed*", "mood": "strain", "action": "flex", "dur": 1.9, "fx": ["sweat"] },
+    { "say": "Fine. Plan B.", "mood": "deadpan", "action": "stare", "pause": 0.35 },
+    { "caption": "*CHOMP*", "mood": "focused", "action": "eat", "dur": 2.0 },
+    { "bg": "void", "props": [], "say": "No more jar. No more problem.",
+      "mood": "deadpan", "action": "stare", "punch": true, "pause": 0.4 },
+    { "bg": "kitchen", "props": [], "caption": "efficiency.", "mood": "smug", "action": "nod", "dur": 1.5 }
+  ]
+}

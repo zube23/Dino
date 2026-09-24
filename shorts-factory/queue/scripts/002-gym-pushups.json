@@ -1,0 +1,16 @@
+{
+  "id": "002-gym-pushups",
+  "title": "T-Rex tries push-ups (physics said no)",
+  "description": "Day one at the gym. The floor remains undefeated.",
+  "tags": ["dinosaur", "trex", "animation", "comedy", "gym", "funny", "cartoon", "relatable"],
+  "beats": [
+    { "bg": "gym", "props": ["dumbbell"], "top": "DAY 1",
+      "say": "Day one at the gym.", "mood": "neutral", "action": "walkin" },
+    { "say": "Today: push-ups.", "mood": "focused", "action": "nod", "pause": 0.3 },
+    { "caption": "*attempt number one*", "mood": "strain", "action": "flex", "dur": 1.8, "fx": ["sweat"] },
+    { "say": "The arms don't reach the floor.", "mood": "shock", "action": "stare", "fx": ["e_mark"], "pause": 0.3 },
+    { "caption": "*physics has spoken*", "mood": "sad", "action": "slump", "dur": 1.6 },
+    { "bg": "void", "props": [], "say": "Cardio it is.", "mood": "deadpan", "action": "stare", "punch": true, "pause": 0.45 },
+    { "bg": "gym", "props": ["dumbbell"], "caption": "same time tomorrow.", "mood": "tired", "action": "sadwalk", "dur": 1.8 }
+  ]
+}

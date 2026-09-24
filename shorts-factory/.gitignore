@@ -1,0 +1,6 @@
+assets/voice/*.onnx
+assets/voice/*.onnx.json
+assets/voice/MODEL_CARD*
+out/
+__pycache__/
+*.pyc

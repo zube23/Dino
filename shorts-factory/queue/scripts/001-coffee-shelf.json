@@ -1,0 +1,19 @@
+{
+  "id": "001-coffee-shelf",
+  "title": "The coffee is RIGHT there (T-Rex problems)",
+  "description": "He has one goal. Gravity has other plans. New tiny problems daily.",
+  "tags": ["dinosaur", "trex", "animation", "comedy", "relatable", "funny", "cartoon", "tiny arms"],
+  "beats": [
+    { "bg": "kitchen", "props": ["shelf_mug"], "top": "DAY 4",
+      "say": "Day four without coffee.", "mood": "tired", "action": "walkin" },
+    { "say": "The mug is right there.", "mood": "focused", "action": "point", "pause": 0.25 },
+    { "caption": "*tiny arm noises*", "mood": "strain", "action": "reach", "dur": 2.0, "fx": ["sweat"] },
+    { "say": "Almost. Almost!", "mood": "strain", "action": "reach", "fx": ["sweat"], "pause": 0.1 },
+    { "caption": "*plan B*", "mood": "focused", "action": "hop", "dur": 1.5 },
+    { "say": "Nothing.", "mood": "deadpan", "action": "stare", "pause": 0.3 },
+    { "bg": "void", "props": [], "say": "Evolution really said: priorities.",
+      "mood": "deadpan", "action": "stare", "punch": true, "pause": 0.45 },
+    { "bg": "kitchen", "props": ["shelf_mug"], "caption": "day five tomorrow.",
+      "mood": "tired", "action": "sadwalk", "dur": 1.9 }
+  ]
+}

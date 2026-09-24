@@ -1,0 +1,17 @@
+{
+  "id": "006-birthday-clap",
+  "title": "T-Rex at birthday parties (the clap problem)",
+  "description": "Everybody claps. Well. Almost everybody.",
+  "tags": ["dinosaur", "trex", "animation", "comedy", "birthday", "funny", "cartoon", "relatable"],
+  "beats": [
+    { "bg": "party", "props": ["cake"],
+      "say": "Birthday party. Time for the song.", "mood": "happy", "action": "walkin" },
+    { "say": "And everybody claps.", "mood": "neutral", "action": "nod", "pause": 0.25 },
+    { "caption": "*attempting to clap*", "mood": "strain", "action": "flex", "dur": 1.9, "fx": ["sweat"] },
+    { "say": "The hands don't... they don't meet.", "mood": "shock", "action": "stare", "pause": 0.3 },
+    { "caption": "*tail percussion activated*", "mood": "focused", "action": "smash", "dur": 1.7 },
+    { "bg": "void", "props": [], "say": "We all bring something different to the table.",
+      "mood": "deadpan", "action": "stare", "punch": true, "pause": 0.4 },
+    { "bg": "party", "props": ["cake"], "caption": "the beat was fire though.", "mood": "smug", "action": "nod", "dur": 1.7, "fx": ["confetti"] }
+  ]
+}

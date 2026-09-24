@@ -1,0 +1,16 @@
+{
+  "id": "012-five-minute-nap",
+  "title": "The 5-minute nap (a documentary)",
+  "description": "Just resting the eyes. What year is it.",
+  "tags": ["dinosaur", "trex", "animation", "comedy", "nap", "funny", "cartoon", "relatable"],
+  "beats": [
+    { "bg": "livingroom", "props": [], "top": "2:00 PM",
+      "say": "Just resting my eyes for five minutes.", "mood": "tired", "action": "idle" },
+    { "caption": "*zzz*", "mood": "sleepy", "action": "stare", "dur": 2.0, "fx": ["zzz"] },
+    { "top": "9:00 PM", "caption": "*seven hours later*", "mood": "sleepy", "action": "stare", "dur": 1.6, "fx": ["zzz"] },
+    { "say": "What year is it?", "mood": "shock", "action": "stare", "fx": ["q_mark"], "pause": 0.3 },
+    { "bg": "void", "say": "The five minute nap is a myth. A trap.",
+      "mood": "deadpan", "action": "stare", "punch": true, "pause": 0.4 },
+    { "bg": "livingroom", "caption": "anyway. goodnight.", "mood": "sleepy", "action": "sadwalk", "dur": 1.7, "fx": ["zzz"] }
+  ]
+}

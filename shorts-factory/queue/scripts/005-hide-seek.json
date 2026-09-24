@@ -1,0 +1,17 @@
+{
+  "id": "005-hide-seek",
+  "title": "Hide and seek grandmaster",
+  "description": "Years of training. Absolutely nowhere to hide.",
+  "tags": ["dinosaur", "trex", "animation", "comedy", "funny", "cartoon", "relatable"],
+  "beats": [
+    { "bg": "livingroom", "props": ["plant"],
+      "say": "Hide and seek champion. Watch this.", "mood": "smug", "action": "walkin" },
+    { "caption": "*expert positioning*", "mood": "focused", "action": "hop", "dur": 1.4 },
+    { "caption": "*if I can't see them, they can't see me*", "mood": "strain", "action": "stare", "dur": 2.0 },
+    { "say": "They will never find me.", "mood": "smug", "action": "stare", "pause": 0.3 },
+    { "top": "30 MINUTES LATER", "caption": "*still winning*", "mood": "deadpan", "action": "stare", "dur": 1.7 },
+    { "say": "Nobody is even looking for me.", "mood": "sad", "action": "stare", "pause": 0.3 },
+    { "bg": "void", "props": [], "say": "Being this good is lonely.", "mood": "deadpan", "action": "stare", "punch": true, "pause": 0.4 },
+    { "bg": "livingroom", "props": ["plant"], "caption": "still undefeated.", "mood": "smug", "action": "nod", "dur": 1.6 }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "id": "011-hat-wind",
+  "title": "The wind took the hat (arms couldn't help)",
+  "description": "He felt unstoppable for exactly nine seconds.",
+  "tags": ["dinosaur", "trex", "animation", "comedy", "funny", "cartoon", "relatable"],
+  "beats": [
+    { "bg": "street", "props": ["hat"],
+      "say": "New hat. Feeling unstoppable.", "mood": "smug", "action": "idle" },
+    { "say": "Nothing can ruin this day.", "mood": "happy", "action": "nod", "pause": 0.25 },
+    { "caption": "*the wind has entered the chat*", "mood": "shock", "action": "stare", "dur": 1.4, "fx": ["wind"], "hatFly": true, "sfx": "wind" },
+    { "caption": "*not the hat*", "mood": "shock", "action": "panic", "dur": 1.9, "fx": ["wind", "sweat"], "hatFly": true },
+    { "props": [], "say": "Gone. Like my dignity.", "mood": "sad", "action": "stare", "pause": 0.3 },
+    { "bg": "void", "say": "The arms were never an option.", "mood": "deadpan", "action": "stare", "punch": true, "pause": 0.4 },
+    { "bg": "street", "caption": "hat had a good run.", "mood": "sad", "action": "sadwalk", "dur": 1.8 }
+  ]
+}

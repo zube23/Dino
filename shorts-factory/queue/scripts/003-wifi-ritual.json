@@ -1,0 +1,18 @@
+{
+  "id": "003-wifi-ritual",
+  "title": "The ancient WiFi ritual (never fails)",
+  "description": "When the internet goes down, a hero rises. Sort of.",
+  "tags": ["dinosaur", "trex", "animation", "comedy", "wifi", "funny", "cartoon", "relatable"],
+  "beats": [
+    { "bg": "livingroom", "props": ["router"],
+      "say": "The internet is down.", "mood": "shock", "action": "walkin", "fx": ["e_mark"] },
+    { "say": "Everyone stay calm.", "mood": "shock", "action": "panic", "pause": 0.2 },
+    { "say": "I know the ancient ritual.", "mood": "focused", "action": "nod", "pause": 0.3 },
+    { "caption": "*off*", "mood": "focused", "action": "point", "dur": 1.0, "sfx": "pop" },
+    { "top": "10... 9... 8...", "caption": "*the sacred waiting*", "mood": "deadpan", "action": "stare", "dur": 1.9 },
+    { "caption": "*on*", "mood": "focused", "action": "point", "dur": 1.0, "sfx": "pop" },
+    { "say": "And now, we pray.", "mood": "neutral", "action": "lookup", "pause": 0.35 },
+    { "bg": "void", "props": [], "say": "IT support runs in my blood.", "mood": "smug", "action": "stare", "punch": true, "pause": 0.4 },
+    { "bg": "livingroom", "props": ["router"], "caption": "wifi restored. hero.", "mood": "happy", "action": "celebrate", "dur": 1.9, "fx": ["confetti"] }
+  ]
+}

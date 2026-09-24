@@ -1,0 +1,93 @@
+# Daily Short: renders the next queued sketch and uploads it to YouTube.
+#
+# NOTE: GitHub only runs `schedule` workflows from the DEFAULT branch.
+# Until this file is merged to main, use "Run workflow" (workflow_dispatch)
+# to trigger it manually from any branch.
+#
+# Required repository secret: YT_OAUTH_JSON  (see shorts-factory/SETUP.md)
+
+name: Daily Short
+
+on:
+  schedule:
+    - cron: "43 16 * * *"   # 16:43 UTC = 18:43 CEST — evening in Europe, midday US East
+  workflow_dispatch:
+    inputs:
+      script:
+        description: "Specific script id (empty = next in queue)"
+        required: false
+        default: ""
+      privacy:
+        description: "Video privacy"
+        required: false
+        default: "public"
+        type: choice
+        options: [public, unlisted, private]
+      dry_run:
+        description: "Render only, no upload"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: shorts-daily
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: shorts-factory/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r shorts-factory/requirements.txt
+
+      - name: Install Chromium
+        run: python -m playwright install --with-deps chromium
+
+      - name: Cache voice model
+        uses: actions/cache@v4
+        with:
+          path: shorts-factory/assets/voice
+          key: voice-en-us-libritts-high-v002
+
+      - name: Build and publish
+        working-directory: shorts-factory
+        env:
+          YT_OAUTH_JSON: ${{ secrets.YT_OAUTH_JSON }}
+        run: |
+          ARGS=""
+          if [ -n "${{ github.event.inputs.script }}" ]; then ARGS="$ARGS --script ${{ github.event.inputs.script }}"; fi
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --no-upload"; fi
+          if [ -n "${{ github.event.inputs.privacy }}" ]; then ARGS="$ARGS --privacy ${{ github.event.inputs.privacy }}"; fi
+          python -m factory.daily $ARGS
+
+      - name: Commit queue state
+        run: |
+          if ! git diff --quiet shorts-factory/queue/state.json; then
+            git config user.name "shorts-factory-bot"
+            git config user.email "actions@users.noreply.github.com"
+            git add shorts-factory/queue/state.json
+            git commit -m "chore: shorts queue state $(date -u +%F) [skip ci]"
+            git pull --rebase origin ${{ github.ref_name }}
+            git push origin HEAD:${{ github.ref_name }}
+          fi
+
+      - name: Keep rendered video as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: short-${{ github.run_id }}
+          path: shorts-factory/out/*.mp4
+          retention-days: 7
+          if-no-files-found: ignore

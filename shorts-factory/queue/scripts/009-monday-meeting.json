@@ -1,0 +1,16 @@
+{
+  "id": "009-monday-meeting",
+  "title": "Every Monday meeting ever",
+  "description": "Agenda: forty slides. Will to live: two slides.",
+  "tags": ["dinosaur", "trex", "animation", "comedy", "work", "office", "funny", "cartoon", "relatable"],
+  "beats": [
+    { "bg": "office", "props": [], "top": "9:00 AM",
+      "say": "Monday meeting. Agenda: forty slides.", "mood": "tired", "action": "walkin" },
+    { "props": ["desk"], "say": "Slide one.", "mood": "neutral", "action": "typing", "pause": 0.3 },
+    { "top": "3 HOURS LATER", "caption": "*still slide one*", "mood": "sleepy", "action": "typing", "dur": 1.8, "fx": ["zzz"] },
+    { "say": "Slide two.", "mood": "deadpan", "action": "typing", "pause": 0.35 },
+    { "bg": "void", "props": [], "say": "This meeting could have been an email.",
+      "mood": "deadpan", "action": "stare", "punch": true, "pause": 0.45 },
+    { "bg": "office", "props": ["desk"], "caption": "*sent from my desk*", "mood": "tired", "action": "slump", "dur": 1.8 }
+  ]
+}

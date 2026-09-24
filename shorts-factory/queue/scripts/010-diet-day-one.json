@@ -1,0 +1,18 @@
+{
+  "id": "010-diet-day-one",
+  "title": "Day 1 of the diet (lasted 11 seconds)",
+  "description": "A creature of discipline meets a cake with no witnesses.",
+  "tags": ["dinosaur", "trex", "animation", "comedy", "diet", "food", "funny", "cartoon", "relatable"],
+  "beats": [
+    { "bg": "kitchen", "props": ["cake"], "top": "DAY 1",
+      "say": "The diet starts today.", "mood": "focused", "action": "walkin" },
+    { "say": "I am a creature of discipline.", "mood": "neutral", "action": "nod", "pause": 0.3 },
+    { "caption": "*the cake is watching*", "mood": "focused", "action": "stare", "dur": 1.6, "pupDX": 9 },
+    { "say": "Do not.", "mood": "angry", "action": "stare", "pause": 0.25 },
+    { "caption": "*negotiating with myself*", "mood": "strain", "action": "stare", "dur": 1.5, "fx": ["sweat"] },
+    { "caption": "*CHOMP*", "mood": "focused", "action": "eat", "dur": 2.0 },
+    { "bg": "void", "props": [], "say": "The diet starts tomorrow. Probably.",
+      "mood": "deadpan", "action": "stare", "punch": true, "pause": 0.4 },
+    { "bg": "kitchen", "props": [], "caption": "crumbs? what crumbs.", "mood": "smug", "action": "shake_no", "dur": 1.7 }
+  ]
+}

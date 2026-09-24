@@ -1,0 +1,16 @@
+{
+  "id": "004-monday-alarm",
+  "title": "6:30 AM vs T-Rex (the tail wins)",
+  "description": "Negotiations with the alarm clock have failed.",
+  "tags": ["dinosaur", "trex", "animation", "comedy", "monday", "funny", "cartoon", "relatable"],
+  "beats": [
+    { "bg": "bedroom", "props": ["alarm"], "top": "6:30 AM", "ring": true,
+      "caption": "*monday*", "mood": "sleepy", "action": "stare", "dur": 1.7 },
+    { "say": "No.", "mood": "deadpan", "action": "stare", "ring": true, "pause": 0.35 },
+    { "caption": "*negotiations failed*", "mood": "angry", "action": "stare", "ring": true, "dur": 1.3 },
+    { "caption": "*the tail solves everything*", "mood": "angry", "action": "smash", "dur": 1.8 },
+    { "bg": "void", "props": [], "say": "Snooze is not a button. It's a lifestyle.",
+      "mood": "deadpan", "action": "stare", "punch": true, "pause": 0.4 },
+    { "bg": "bedroom", "props": ["alarm"], "caption": "see you at 6:39.", "mood": "sleepy", "action": "stare", "dur": 1.9, "fx": ["zzz"] }
+  ]
+}

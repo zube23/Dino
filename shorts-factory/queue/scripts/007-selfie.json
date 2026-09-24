@@ -1,0 +1,16 @@
+{
+  "id": "007-selfie",
+  "title": "T-Rex takes a selfie (100% success rate)",
+  "description": "New profile picture day. The front camera shows no mercy.",
+  "tags": ["dinosaur", "trex", "animation", "comedy", "selfie", "funny", "cartoon", "relatable"],
+  "beats": [
+    { "bg": "street", "props": ["phone"],
+      "say": "New profile picture day.", "mood": "happy", "action": "walkin" },
+    { "say": "Just hold it a little further...", "mood": "focused", "action": "point", "pause": 0.2 },
+    { "caption": "*maximum arm deployed*", "mood": "strain", "action": "reach", "dur": 1.8, "fx": ["sweat"] },
+    { "caption": "*click*", "mood": "shock", "action": "stare", "dur": 0.9, "fx": ["flash"], "sfx": "shutter" },
+    { "say": "Perfect.", "mood": "deadpan", "action": "stare", "fx": ["photo_nostril"], "pause": 0.6 },
+    { "bg": "void", "props": [], "say": "Uploading.", "mood": "smug", "action": "nod", "punch": true, "pause": 0.4 },
+    { "bg": "street", "props": [], "caption": "12 likes already.", "mood": "happy", "action": "celebrate", "dur": 1.7, "fx": ["confetti"] }
+  ]
+}
